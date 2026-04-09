@@ -20,3 +20,4 @@ npm run dev:api
 
 ## Documents
 - Product/Sprint plan: `docs/plan.md`
+- Full architecture plan: `docs/ai_협업_에이전트_설계_10198352.plan.md`
