@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import Database from "better-sqlite3";
+/** CJS `export =` — default import는 ts-node에서 `default is not a constructor` 로 깨짐 */
+import Database = require("better-sqlite3");
 import * as fs from "fs";
 import * as path from "path";
 import type { IntegrationEvent, ValidationResult } from "../../../../specs/data-model/types";
@@ -64,7 +65,7 @@ function defaultContract(): ContractState {
 @Injectable()
 export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WorkspacePersistenceService.name);
-  private db!: Database.Database;
+  private db!: InstanceType<typeof Database>;
 
   onModuleInit(): void {
     const dbPath =
