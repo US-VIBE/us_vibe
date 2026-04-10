@@ -1,0 +1,25 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: usvibe
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d usvibe"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - usvibe_pgdata:/var/lib/postgresql/data
+
+volumes:
+  usvibe_pgdata:
