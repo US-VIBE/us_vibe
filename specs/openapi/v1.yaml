@@ -18,3 +18,621 @@ paths:
                     type: boolean
                   service:
                     type: string
+  /health/db:
+    get:
+      summary: PostgreSQL connectivity check
+      responses:
+        "200":
+          description: Database reachability result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  database:
+                    type: string
+                    enum: [up, down]
+  /health/redis:
+    get:
+      summary: Redis connectivity (JWT denylist)
+      responses:
+        "200":
+          description: Redis reachability result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  redis:
+                    type: string
+                    enum: [disabled, up, down]
+  /auth/register:
+    post:
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthCredentialsRequest"
+      responses:
+        "201":
+          description: Access token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /auth/login:
+    post:
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthCredentialsRequest"
+      responses:
+        "200":
+          description: Access token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /auth/logout:
+    post:
+      summary: Revoke current access token (Redis-backed denylist when configured)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logout accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        "401":
+          description: Missing, invalid, or revoked token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /users/me:
+    get:
+      summary: Current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /collaboration/events:
+    post:
+      summary: Append a collaboration or agent event log row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CollaborationEventRequest"
+      responses:
+        "201":
+          description: Event stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollaborationEventResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions:
+    post:
+      summary: Create a Backend Solo simulation session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulationSessionCreateRequest"
+      responses:
+        "201":
+          description: Session created (currentGate A)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationSessionResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions/{id}/implementation-ready:
+    post:
+      summary: Learner marks implementation finished (gate B); required before POST verify unless demo skip
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Session updated (implementationAcknowledgedAt set)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationSessionResponse"
+        "400":
+          description: Not at gate B
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions/{id}/run-scenario/finish:
+    post:
+      summary: Gemini Senior review + retro after verify (requires gate C and GEMINI_API_KEY)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Session completed through DONE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScenarioRunResponse"
+        "400":
+          description: Wrong gate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "502":
+          description: Gemini error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "503":
+          description: GEMINI_API_KEY not set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions/{id}/run-scenario:
+    post:
+      summary: Gemini intro (kickoff+contract) from gate A; stops at B unless skipImplementationWait
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skipImplementationWait:
+                  type: boolean
+                  description: Demo only — skips implementation acknowledgement and runs full flow to DONE
+      responses:
+        "200":
+          description: Intro paused at B (pausedForImplementation true), or full DONE when skipImplementationWait
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScenarioRunResponse"
+        "400":
+          description: Wrong gate or verify failed mid-run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "502":
+          description: Gemini or upstream AI error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "503":
+          description: GEMINI_API_KEY not set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions/{id}:
+    get:
+      summary: Get simulation session by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationSessionResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+    patch:
+      summary: Update notes, retro summary, or advance gate (B to C requires POST verify)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulationSessionPatchRequest"
+      responses:
+        "200":
+          description: Updated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationSessionResponse"
+        "400":
+          description: Invalid gate transition or verify required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions/{id}/verify:
+    post:
+      summary: Run contract-file + DB checks; advances B to C on success
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Verification passed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationSessionResponse"
+        "400":
+          description: Wrong gate, verification failed, or IMPLEMENTATION_NOT_ACKNOWLEDGED (gate B without POST implementation-ready)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /sessions/{id}/timeline:
+    get:
+      summary: Collaboration events for this session id (time ascending)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CollaborationEventTimelineItem"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AuthCredentialsRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    AuthTokenResponse:
+      type: object
+      required: [accessToken]
+      properties:
+        accessToken:
+          type: string
+    UserResponse:
+      type: object
+      required: [id, email, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        createdAt:
+          type: string
+          format: date-time
+    ContractError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    CollaborationEventRequest:
+      type: object
+      required: [eventType]
+      properties:
+        eventType:
+          type: string
+          maxLength: 128
+        payload:
+          type: object
+          additionalProperties: true
+        sessionId:
+          type: string
+          nullable: true
+          maxLength: 256
+    CollaborationEventResponse:
+      type: object
+      required: [id, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    SimulationSessionCreateRequest:
+      type: object
+      required: [learningGoal, topic, sprintDuration, skillLevel]
+      properties:
+        learnerRole:
+          type: string
+        learningGoal:
+          type: string
+        topic:
+          type: string
+        sprintDuration:
+          type: string
+        skillLevel:
+          type: string
+        activeRoles:
+          type: array
+          items:
+            type: string
+    SimulationSessionPatchRequest:
+      type: object
+      properties:
+        targetGate:
+          type: string
+          enum: [A, B, C, D, DONE]
+        implementationNotes:
+          type: string
+          nullable: true
+        retroSummary:
+          type: object
+          nullable: true
+          additionalProperties: true
+    SimulationSessionResponse:
+      type: object
+      required:
+        - id
+        - learnerRole
+        - learningGoal
+        - topic
+        - sprintDuration
+        - skillLevel
+        - activeRoles
+        - currentGate
+        - gateHistory
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        learnerRole:
+          type: string
+        learningGoal:
+          type: string
+        topic:
+          type: string
+        sprintDuration:
+          type: string
+        skillLevel:
+          type: string
+        activeRoles:
+          type: array
+          items:
+            type: string
+        currentGate:
+          type: string
+          enum: [A, B, C, D, DONE]
+        gateHistory:
+          type: array
+          items:
+            type: object
+            required: [at, from, to, reason]
+            properties:
+              at:
+                type: string
+                format: date-time
+              from:
+                type: string
+              to:
+                type: string
+              reason:
+                type: string
+        implementationNotes:
+          type: string
+          nullable: true
+        implementationAcknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+        retroSummary:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ScenarioRunResponse:
+      type: object
+      required: [session, steps]
+      properties:
+        session:
+          $ref: "#/components/schemas/SimulationSessionResponse"
+        steps:
+          type: array
+          items:
+            type: string
+        pausedForImplementation:
+          type: boolean
+          description: True when intro stopped at gate B waiting for learner
+    CollaborationEventTimelineItem:
+      type: object
+      required: [id, eventType, payload, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        sessionId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
