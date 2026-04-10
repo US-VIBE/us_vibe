@@ -43,7 +43,7 @@ CORS는 API에서 활성화되어 있습니다.
 
 \*현재 컨트롤러에 가드 없음. 운영에서 막으려면 OpenAPI/구현에 맞춰 Bearer를 추가하는 식으로 확장하면 됩니다.
 
-**시나리오·게이트 흐름:** [`docs/user-scenario-backend-solo-mvp.md`](../user-scenario-backend-solo-mvp.md).
+**시나리오·게이트 흐름:** [`docs/user-scenario-backend-solo-mvp.md`](../user-scenario-backend-solo-mvp.md) (같은 문서의 **「웹 시뮬레이션 콘솔 (`/simulate`)」** 절에 자동 완주·데스크톱 알림·채팅 UI 요약이 있다).
 
 **Google AI / Gemini (후속):** 서버에서만 사용. API 키는 **`NEXT_PUBLIC_` 접두사 없이** 루트 `.env`에 둔다 (예: `GEMINI_API_KEY`). 브라우저에 노출하지 않는다.
 
