@@ -31,6 +31,8 @@ API만 DB까지 포함해 띄우려면 기존처럼 `npm run dev:api:stack` 을 
 
 ## Documents
 - Product/Sprint plan: `docs/plan.md`
+- **협업용 통합 참고(환경 변수·엔드포인트·이름 규칙):** `docs/collaboration-env-and-endpoints.md`
+- FE ↔ API 연동: `docs/fe-web-integration.md`
 - Backend solo user scenario (MVP flow): `docs/user-scenario-backend-solo-mvp.md`
 - Full architecture plan: `docs/ai_협업_에이전트_설계_10198352.plan.md`
 - Collaboration/auth API & env reference: `docs/api/collaboration-endpoints-and-env.md`
