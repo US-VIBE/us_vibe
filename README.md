@@ -14,6 +14,16 @@ npm run dev:web
 npm run dev:api
 ```
 
+### 로컬 개발 모드 요약
+
+| 명령 | 용도 |
+|------|------|
+| `npm run dev` | Postgres가 이미 떠 있을 때 API+웹만 동시 기동 |
+| `npm run dev:lite` | DB 컨테이너 기동·포트 대기 후 API+웹 (마이그레이션 생략, 반복 기동이 조금 더 빠름) |
+| `npm run dev:stack` | 첫 클론·마이그레이션 추가 직후 등, DB 기동 + `migrate` + API+웹 |
+
+웹(`apps/web`)은 동기화 폴더(OneDrive 등)에서 **무한 재컴파일**이 나오기 쉬워 기본이 `next dev --webpack`이며, 로컬 디스크에서만 Turbopack을 쓰려면 `npm run dev:turbo -w web`을 사용합니다.
+
 ### 시뮬레이션 풀 스택 (DB + 마이그레이션 + API + 웹)
 
 Docker Desktop(또는 Docker Engine)이 떠 있는 상태에서, 저장소 루트에서:
