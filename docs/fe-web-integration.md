@@ -28,7 +28,7 @@
 | 변수 | 필수 | 설명 |
 |------|------|------|
 | `NEXT_PUBLIC_API_URL` | 선택 | API 베이스 URL. **설정 시** 로그인/회원가입 후 JWT로 보호된 API를 호출한다. |
-| `NEXT_PUBLIC_API_BASE_URL` | 선택 | `/simulate` 등 일부 화면에서 사용 ([`api-base.ts`](../apps/web/lib/api-base.ts)). |
+| `NEXT_PUBLIC_API_BASE_URL` | 선택 | `/simulate` 등에서 사용 ([`api-base.ts`](../apps/web/lib/api-base.ts)). 미설정 시 `http://localhost:4000` 기본값. **연동 시 보통 `NEXT_PUBLIC_API_URL`과 동일**하게 둔다. |
 | `GEMINI_API_KEY` | 선택(채팅 권장) | Next `app/api/chat` — **서버 전용.** |
 | `GEMINI_MODEL` | 선택 | 기본값은 코드 참고 |
 | `OPENAI_API_KEY` 등 | 선택 | Gemini 키가 없을 때만 OpenAI 호환 경로 |
