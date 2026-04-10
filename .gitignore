@@ -137,3 +137,10 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# D. Integration & Sandbox — 런타임 분석 결과 파일 (CI에서 생성, 커밋 불필요)
+.ai/code-delta-summary.json
+.ai/contract-change-report.json
+
+# VFS 로컬 스토어
+vfs-store/
