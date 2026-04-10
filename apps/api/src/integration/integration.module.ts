@@ -1,23 +1,25 @@
 import { Module } from "@nestjs/common";
+import { AuthModule } from "../auth/auth.module";
 import { WebhookController } from "./webhook.controller";
 import { VfsController } from "./vfs.controller";
 import { ValidationController } from "./validation.controller";
 import { ValidationService } from "./validation.service";
 import { VfsService } from "./vfs.service";
 import { ReportService } from "./report.service";
-import { EventPublisherStub } from "./event-publisher.stub";
+import { EventPublisherSqlite } from "./event-publisher.sqlite";
 import { EVENT_PUBLISHER } from "./event-publisher.interface";
+import { IntegrationEventsController } from "./integration-events.controller";
 
 @Module({
-  controllers: [WebhookController, VfsController, ValidationController],
+  imports: [AuthModule],
+  controllers: [WebhookController, VfsController, ValidationController, IntegrationEventsController],
   providers: [
     ValidationService,
     VfsService,
     ReportService,
-    // TODO: A(오케스트레이터) Redis 연동 후 EventPublisherStub → RedisEventPublisher로 교체
-    // 교체 시 이 줄만 수정하면 됨: useClass: RedisEventPublisher
-    { provide: EVENT_PUBLISHER, useClass: EventPublisherStub },
+    /** Redis 등으로 교체 시: { provide: EVENT_PUBLISHER, useClass: RedisEventPublisher } */
+    { provide: EVENT_PUBLISHER, useClass: EventPublisherSqlite },
   ],
-  exports: [ValidationService, VfsService, ReportService],
+  exports: [ValidationService, VfsService, ReportService, EVENT_PUBLISHER],
 })
 export class IntegrationModule {}

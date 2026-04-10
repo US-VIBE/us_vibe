@@ -19,7 +19,8 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@specs/*": ["../../specs/*"]
     },
     "plugins": [
       {
