@@ -8,6 +8,18 @@ AI 멀티 에이전트 기반 협업 학습 시뮬레이터 MVP를 위한 모노
 - Workspace: npm workspaces (single repository)
 
 ## Quick Start
+
+**맥 + Docker로 전체 연동(권장)** — [Docker Desktop](https://www.docker.com/products/docker-desktop/) 설치 후 앱 실행 → 저장소 루트에서:
+
+```bash
+npm install
+npm run dev:stack
+```
+
+상세: [`docs/docker-mac.md`](./docs/docker-mac.md)
+
+Docker 없이 쓸 때만:
+
 ```bash
 npm install
 npm run dev:web
@@ -40,6 +52,7 @@ API만 DB까지 포함해 띄우려면 기존처럼 `npm run dev:api:stack` 을 
 - API: `http://localhost:4000/health`
 
 ## Documents
+- **맥에서 Docker로 DB·연동 실행:** `docs/docker-mac.md`
 - Product/Sprint plan: `docs/plan.md`
 - **협업용 통합 참고(환경 변수·엔드포인트·이름 규칙):** `docs/collaboration-env-and-endpoints.md`
 - FE ↔ API 연동: `docs/fe-web-integration.md`
