@@ -168,10 +168,12 @@ export class WebhookController {
     type: IntegrationEventType,
     payload: IntegrationEvent["payload"],
   ): Promise<void> {
+    const sessionId =
+      process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
     const event: IntegrationEvent = {
       type,
-      sessionId: "pending", // TODO: A의 GET /api/session/:sessionId/state-version 연동 후 실제 값으로 교체
-      stateVersion: 0,       // TODO: A의 SSOT stateVersion 조회 후 실제 값으로 교체
+      sessionId,
+      stateVersion: 0,
       triggeredBy: "github",
       payload,
       timestamp: new Date().toISOString(),

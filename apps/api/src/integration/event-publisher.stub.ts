@@ -2,9 +2,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import type { IEventPublisher } from "./event-publisher.interface";
 
-// TODO: A(오케스트레이터) Redis 연동 후 이 stub을 RedisEventPublisher로 교체한다.
-// 교체 방법: integration.module.ts에서 useClass: EventPublisherStub → useClass: RedisEventPublisher
-// Redis 채널: integration:events (docs/integration-sandbox/collaboration-interface.md 5-A항 참조)
+// 기본 구현은 `event-publisher.sqlite.ts`(SQLite 로그). Redis Pub/Sub는 이 클래스를
+// `RedisEventPublisher`로 교체하며 integration.module에서 교체하면 된다.
 @Injectable()
 export class EventPublisherStub implements IEventPublisher {
   private readonly logger = new Logger(EventPublisherStub.name);

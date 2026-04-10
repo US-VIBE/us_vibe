@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { ApiAuthController } from "./api-auth.controller";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { JwtAuthGuard } from "./jwt-auth.guard";
@@ -17,7 +18,7 @@ import { UsersController } from "./users.controller";
       signOptions: { expiresIn: "7d" }
     })
   ],
-  controllers: [AuthController, UsersController],
+  controllers: [AuthController, UsersController, ApiAuthController],
   providers: [
     AuthService,
     JwtAuthGuard,

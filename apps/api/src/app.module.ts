@@ -6,7 +6,12 @@ import { AppController } from "./app.controller";
 import { AuthModule } from "./auth/auth.module";
 import { CollaborationModule } from "./collaboration/collaboration.module";
 import { IntegrationModule } from "./integration/integration.module";
+import { PersistenceModule } from "./persistence/persistence.module";
 import { RedisIntegrationModule } from "./redis/redis.module";
+import { ContractGateController } from "./session/contract-gate.controller";
+import { PrReviewController } from "./session/pr-review.controller";
+import { RetroController } from "./session/retro.controller";
+import { SessionController } from "./session/session.controller";
 import { SessionsModule } from "./sessions/sessions.module";
 
 @Module({
@@ -19,9 +24,16 @@ import { SessionsModule } from "./sessions/sessions.module";
     AuthModule,
     CollaborationModule,
     SessionsModule,
-    IntegrationModule
+    IntegrationModule,
+    PersistenceModule
   ],
-  controllers: [AppController],
+  controllers: [
+    AppController,
+    SessionController,
+    PrReviewController,
+    ContractGateController,
+    RetroController
+  ],
   providers: []
 })
 export class AppModule {}

@@ -7,10 +7,13 @@ import {
   HttpCode,
   Logger,
   Inject,
+  UseGuards,
 } from "@nestjs/common";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { VfsService, VfsFile, VfsSnapshot, VfsDiff } from "./vfs.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
+import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
 interface CreateSnapshotDto {
   files: VfsFile[];
@@ -26,12 +29,14 @@ interface ApiResponse<T> {
 }
 
 @Controller("api/vfs")
+@UseGuards(JwtAuthGuard)
 export class VfsController {
   private readonly logger = new Logger(VfsController.name);
 
   constructor(
     private readonly vfsService: VfsService,
     @Inject(EVENT_PUBLISHER) private readonly eventPublisher: IEventPublisher,
+    private readonly workspace: WorkspacePersistenceService,
   ) {}
 
   @Post("snapshot")
@@ -50,7 +55,7 @@ export class VfsController {
     const event: IntegrationEvent = {
       type: "VFS_SNAPSHOT_CREATED",
       sessionId: dto.sessionId,
-      stateVersion: 0, // TODO: A의 stateVersion 조회 후 교체
+      stateVersion: this.workspace.getWorkspaceStateVersion(dto.sessionId),
       triggeredBy: "agent",
       payload: {
         snapshotId: snapshot.snapshotId,
@@ -85,7 +90,7 @@ export class VfsController {
     const event: IntegrationEvent = {
       type: "VFS_APPROVED",
       sessionId: snapshot.sessionId,
-      stateVersion: 0, // TODO: A의 stateVersion 조회 후 교체
+      stateVersion: this.workspace.getWorkspaceStateVersion(snapshot.sessionId),
       triggeredBy: "user",
       payload: {
         snapshotId: snapshot.snapshotId,

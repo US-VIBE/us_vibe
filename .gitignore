@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 
 # VFS 로컬 스토어
 vfs-store/
+
+# API — SQLite 워크스페이스 상태 (PR·계약·회고)
+apps/api/data/

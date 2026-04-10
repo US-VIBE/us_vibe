@@ -11,7 +11,10 @@ import { ContractHttpExceptionFilter } from "./http-exception.filter";
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useGlobalFilters(new ContractHttpExceptionFilter());
-  app.enableCors();
+  app.enableCors({
+    origin: true,
+    credentials: true
+  });
   const port = process.env.API_PORT
     ? parseInt(process.env.API_PORT, 10)
     : 4000;

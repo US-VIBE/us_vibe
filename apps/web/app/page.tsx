@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { WorkspaceApp } from "@/components/workspace/workspace-app";
+import { SessionGateLoader } from "@/components/session-gate-loader";
 
 export default function HomePage() {
   return (
@@ -12,11 +12,14 @@ export default function HomePage() {
           padding: "8px 16px"
         }}
       >
-        <Link href="/simulate" style={{ color: "#2563eb", fontSize: 14, fontWeight: 600 }}>
+        <Link
+          href="/simulate"
+          style={{ color: "#2563eb", fontSize: 14, fontWeight: 600 }}
+        >
           백엔드 시뮬레이션 API 콘솔 (/simulate)
         </Link>
       </div>
-      <WorkspaceApp />
+      <SessionGateLoader />
     </>
   );
 }

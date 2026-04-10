@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Logger } from "@nestjs/common";
+import { Controller, Get, Param, Logger, UseGuards } from "@nestjs/common";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import * as fs from "fs";
 import * as path from "path";
 import type { ValidationResult } from "../../../../specs/data-model/types";
@@ -22,6 +23,7 @@ const STORAGE_PATH = path.resolve(
 );
 
 @Controller("api/validation")
+@UseGuards(JwtAuthGuard)
 export class ValidationController {
   private readonly logger = new Logger(ValidationController.name);
 
