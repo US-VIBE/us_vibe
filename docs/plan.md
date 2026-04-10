@@ -24,3 +24,7 @@
 ## Success Criteria
 - 백엔드 학습자 1인이 요구사항 -> 계약 -> 구현 -> 리뷰 -> 회고 루프를 1회 완료
 - 핵심 이벤트 로그 누락 0건
+
+## User scenario (Backend Solo MVP)
+
+단계별 사용자·API 흐름: [`user-scenario-backend-solo-mvp.md`](user-scenario-backend-solo-mvp.md).
