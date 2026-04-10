@@ -11,6 +11,7 @@
     "db:wait": "node scripts/wait-for-tcp.mjs 127.0.0.1 5432 postgres",
     "migrate": "npm run migration:run -w @us-vibe/backend",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:lite": "npm run db:up && npm run db:wait && npm run dev",
     "dev:stack": "npm run db:up && npm run db:wait && npm run migrate && npm run dev",
     "dev:web": "npm run dev -w web",
     "dev:api": "npm run start:dev -w api",

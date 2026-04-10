@@ -8,7 +8,8 @@ const host = process.argv[2] ?? "127.0.0.1";
 const port = Number(process.argv[3] ?? "5432");
 const label = process.argv[4] ?? `${host}:${port}`;
 const maxMs = Number(process.env.WAIT_FOR_TCP_MS ?? "60000");
-const intervalMs = 1000;
+/** Poll interval when the port is not ready yet (ms). Lower = faster “ready” detection; slightly more CPU. */
+const intervalMs = Number(process.env.WAIT_FOR_TCP_INTERVAL_MS ?? "200");
 
 function tryConnect() {
   return new Promise((resolve, reject) => {
@@ -16,7 +17,7 @@ function tryConnect() {
       socket.end();
       resolve(undefined);
     });
-    socket.setTimeout(5000);
+    socket.setTimeout(2500);
     socket.on("error", reject);
     socket.on("timeout", () => {
       socket.destroy();
