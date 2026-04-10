@@ -16,7 +16,7 @@
 | 5b | 구현 완료(사람 단계) | `POST /sessions/:id/implementation-ready` — Gate **B**에서만; DB에 확인 시각 기록 후에야 검증 허용 |
 | 6 | 완료 감지 | `POST /sessions/:id/verify` — Gate **B** + 구현 확인 후 계약 파일 존재 + DB ping, 성공 시 `C` |
 | 7–9 | 리뷰·회고 | `POST /sessions/:id/run-scenario/finish` (Gate **C**, Gemini)가 Senior 발화·게이트 전이·회고 요약을 처리; 수동으로는 `PATCH /sessions/:id` 로 `C`→`D`→`DONE` 전이도 가능 |
-| 8 (대체) | 알림 | `GET /sessions/:id/timeline` + `GET /sessions/:id` **폴링** (웹 라우트 `/simulate`, 소스 [`apps/web/app/simulate/page.tsx`](../apps/web/app/simulate/page.tsx)). 푸시는 후속 |
+| 8 (대체) | 알림 | `GET /sessions/:id/timeline` + `GET /sessions/:id` **폴링** (웹 `/simulate`). 브라우저 데스크톱 알림·UI 상세는 아래 **「웹 시뮬레이션 콘솔」** 절. 모바일/서버 푸시는 후속 |
 | 자동 데모 | **Gemini** (`GEMINI_API_KEY` 설정 시) | `POST /sessions/:id/run-scenario` — 기본: 세션 **Gate A**에서 킥오프·계약 AI만 돌리고 **B에서 멈춤**. 이후 `implementation-ready` → `verify` → `run-scenario/finish`. 본문 `{ "skipImplementationWait": true }`면 예전처럼 한 요청으로 끝까지(데모). 키 없으면 **503** `AI_NOT_CONFIGURED`. |
 
 ---
@@ -162,6 +162,41 @@ QA는 통합 검증 결과를 전달한다.
 - QA: 핵심 시나리오 테스트 통과
 - Senior: 리뷰 승인
 - PM: 스프린트 목표 달성 처리
+
+## 웹 시뮬레이션 콘솔 (`/simulate`, 구현 묶음)
+
+백엔드 게이트 시나리오를 **브라우저 한 화면**에서 실행·관찰한다. (모바일 앱 푸시, 서버 Web Push, Slack 등 **외부 알림 채널**은 포함하지 않는다.)
+
+| 구분 | 구현 위치 | 하는 일 |
+|------|-----------|---------|
+| 페이지 | [`apps/web/app/simulate/page.tsx`](../apps/web/app/simulate/page.tsx) | API 호출, 폴링, 자동 완주, 알림, 채팅 입력 |
+| 레이아웃 | [`apps/web/app/simulate/simulate-page.module.css`](../apps/web/app/simulate/simulate-page.module.css) | 2열 그리드, 900px 이하 1열, 채팅 패널 `sticky`/`max-height` 조정 |
+
+### 자동 완주
+
+- **시작 조건**: `/health`, `/health/db`가 통과한 뒤「자동 완주 시작」을 누른다.
+- **호출 순서**: 세션 ID가 비어 있으면 `POST /sessions`로 생성한 뒤, `GET /sessions/:id`를 주기적으로 확인해 **Gate A**에 들어오면 `POST /sessions/:id/run-scenario`(인트로) → **Gate B**까지 대기 → `POST /sessions/:id/implementation-ready` → `POST /sessions/:id/verify` → **Gate C**까지 대기 → `POST /sessions/:id/run-scenario/finish` → **Gate DONE**까지 대기한다.
+- **중지**:「자동 완주 중지」로 클라이언트 취소 플래그를 세우고, 진행 중 표시를 멈춘다.
+- **UI 잠금**: 자동 완주가 돌아가는 동안 수동 단계 버튼·세션 생성·채팅 전송을 비활성화해 이중 호출을 막는다.
+
+### 알림(푸시 대체)
+
+- **Notification API**: 사용자가 권한을 허용한 뒤「새 타임라인 이벤트 알림」을 켜면, 폴링으로 갱신된 타임라인에서 **새 이벤트**에 한해 OS 알림을 띄운다.
+- **대상 이벤트 타입(예)**: `agent_reply`, `implementation_acknowledged`, `user_message`, `retro_complete` 등.
+- **과거 이벤트 스팸 방지**: 세션 ID 변경, 알림 체크를 다시 켤 때, 또는 권한을 새로 허용할 때 **현재 타임라인 스냅샷을 “이미 읽음”으로 시드**한 뒤, 이후에만 알림을 보낸다.
+
+### 채팅·타임라인 UI
+
+- 타임라인은 `GET /sessions/:id/timeline` 결과를 시간순으로 정렬해, `user_message` / `agent_reply` 위주로 말풍선 형태로 보여 준다.
+- 학습자 입력은 `POST /collaboration/events`에 `eventType: "user_message"`, `payload: { "text": "<내용>" }`, `sessionId`를 넣어 보낸다.
+- 디버깅용으로 화면 하단에 **원시 타임라인** 목록을 유지한다.
+
+### 폴링·환경
+
+- 세션·타임라인 갱신은 페이지의 **폴링 간격**(수 초)에 따른다. 실시간 WebSocket/SSE는 이 묶음에 포함하지 않는다.
+- API 베이스 URL은 `apps/web`의 `NEXT_PUBLIC_API_BASE_URL`(미설정 시 로컬 기본값)을 따른다. 상세 표는 [`docs/api/collaboration-endpoints-and-env.md`](api/collaboration-endpoints-and-env.md)를 본다.
+
+---
 
 ## 관련 문서
 
