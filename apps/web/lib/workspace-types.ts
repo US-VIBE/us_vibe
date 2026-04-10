@@ -1,0 +1,3 @@
+export type HumanRoleId = "pm" | "fe" | "be" | "senior" | "qa";
+
+export type StoryTabId = "s1" | "s2" | "s3" | "s4" | "s5";
