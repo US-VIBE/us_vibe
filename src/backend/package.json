@@ -1,0 +1,25 @@
+{
+  "name": "@us-vibe/backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typeorm": "typeorm-ts-node-commonjs",
+    "migration:run": "npm run typeorm -- -d src/data-source.ts migration:run",
+    "migration:generate": "npm run typeorm -- -d src/data-source.ts migration:generate"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "ioredis": "^5.6.0",
+    "pg": "^8.14.1",
+    "reflect-metadata": "^0.2.2",
+    "typeorm": "^0.3.22"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}
