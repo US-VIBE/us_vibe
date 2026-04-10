@@ -1,17 +1,132 @@
-name: ci
+name: CI
 
 on:
   pull_request:
+    branches: [develop, main]
   push:
     branches: [main]
 
+# PR merge 블록: 모든 required job이 통과해야 merge 허용
+# GitHub Repository Settings > Branches > Branch protection rules 에서
+# "Require status checks to pass before merging" 에 아래 job 이름 추가:
+#   lint, typecheck, contract-validation, build
+
 jobs:
-  build:
+  # ── Job 1: ESLint ──────────────────────────────────────────────
+  lint:
+    name: ESLint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
-      - run: npm run build
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint (api)
+        run: npm run lint -w api
+        continue-on-error: false
+
+      - name: Run ESLint (web)
+        run: npm run lint -w web
+        continue-on-error: false
+
+  # ── Job 2: TypeScript ──────────────────────────────────────────
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check (api)
+        run: npx tsc --noEmit -p apps/api/tsconfig.json
+        continue-on-error: false
+
+      - name: TypeScript check (web)
+        run: npx tsc --noEmit -p apps/web/tsconfig.json
+        continue-on-error: false
+
+  # ── Job 3: OpenAPI Contract Validation ────────────────────────
+  contract-validation:
+    name: OpenAPI Contract Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate API contract files exist and parse correctly
+        run: node scripts/validate-api-contract.js
+        continue-on-error: false
+
+      - name: Detect contract changes (PR only)
+        if: github.event_name == 'pull_request'
+        run: node scripts/detect-contract-changes.js
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        continue-on-error: true  # 계약 변경 감지 실패는 CI 블록 안 함 (감지만)
+
+  # ── Job 4: Build ───────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, contract-validation]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all workspaces
+        run: npm run build
+        continue-on-error: false
+
+  # ── Job 5: Code Delta Analysis (push to develop/main only) ────
+  code-delta:
+    name: Code Delta Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 이전 커밋과 비교하기 위해 2개 이상 fetch
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Analyze code delta
+        run: node scripts/code-delta-analyzer.js
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
+        continue-on-error: true  # 분석 실패가 CI 블록하지 않도록
