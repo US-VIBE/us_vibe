@@ -4,7 +4,7 @@ import type { IEventPublisher } from "./event-publisher.interface";
 
 // TODO: A(오케스트레이터) Redis 연동 후 이 stub을 RedisEventPublisher로 교체한다.
 // 교체 방법: integration.module.ts에서 useClass: EventPublisherStub → useClass: RedisEventPublisher
-// Redis 채널: integration:events (docs/collaboration-interface.md 5-A항 참조)
+// Redis 채널: integration:events (docs/integration-sandbox/collaboration-interface.md 5-A항 참조)
 @Injectable()
 export class EventPublisherStub implements IEventPublisher {
   private readonly logger = new Logger(EventPublisherStub.name);

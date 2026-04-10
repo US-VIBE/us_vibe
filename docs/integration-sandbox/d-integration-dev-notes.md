@@ -1,9 +1,19 @@
 # D · 인테그레이션 & 샌드박스 — 개발자 노트
 
-> **파일**: `docs/d-integration-dev-notes.md`  
+> **파일**: `docs/integration-sandbox/d-integration-dev-notes.md`  
 > **역할**: D (인테그레이션 & 샌드박스) — 한승준  
 > 날짜별 구현 내용과 결정 사항을 기록합니다.  
 > 새 작업 완료 시 최신 항목을 **맨 위에** 추가합니다.
+
+---
+
+## 2026-04-10 (3차)
+
+### `docs/integration-sandbox/` 문서 패키지로 정리
+
+- D(인테그레이션 & 샌드박스) 전용 문서를 `docs/integration-sandbox/` 하위로 이동
+- [`README.md`](README.md)에 역할·문서 목록·관련 코드 경로 명시
+- 코드·스펙 내 문서 경로 참조 일괄 갱신 (`collaboration-interface.md` 등)
 
 ---
 
@@ -13,7 +23,7 @@
 
 #### 완료된 작업
 
-**1. 협업 인터페이스 문서 작성** — `docs/collaboration-interface.md`
+**1. 협업 인터페이스 문서 작성** — `docs/integration-sandbox/collaboration-interface.md`
 - 팀 전체 공유용 이벤트 타입 9종 표준 정의
   - `PR_OPENED`, `PR_UPDATED`, `PR_MERGED`
   - `VALIDATION_PASSED`, `VALIDATION_FAILED`
@@ -28,7 +38,7 @@
 - 환경변수 소유 명시 (D/B/A 구분)
 - A/B/C 팀원 각각과 맞춰야 할 인터페이스 규칙 정리
 
-**2. 파이프라인 설계 문서 작성** — `docs/d-integration-pipeline.md`
+**2. 파이프라인 설계 문서 작성** — `docs/integration-sandbox/d-integration-pipeline.md`
 - GitHub Webhook → 이벤트 라우팅 → 정적 검증 → VFS → Redis 이벤트 발행 전체 흐름 설계
 - 7개 컴포넌트 책임 명세
   - Webhook Receiver, Event Router, Static Validation Pipeline, Result Aggregator, VFS Snapshot Creator, Failure Report Generator, Code Delta Analyzer
@@ -36,7 +46,7 @@
 - Mermaid 아키텍처 다이어그램 포함
 - MVP / V2 경계 명시
 
-**3. 시나리오 문서 작성** — `docs/d-integration-scenarios.md`
+**3. 시나리오 문서 작성** — `docs/integration-sandbox/d-integration-scenarios.md`
 - 시나리오 1: PR 제출 → 정적 검증 → Senior 리뷰 트리거 (Sequence Diagram 포함)
 - 시나리오 2: OpenAPI 계약 변경 감지 → 영향 범위 리포트
 - 시나리오 3: VFS Shadow Branch → 학습자 승인 → 실제 브랜치 반영

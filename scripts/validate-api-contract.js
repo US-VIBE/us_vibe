@@ -133,7 +133,7 @@ if (!openApiDoc.raw.includes('"200"') && !openApiDoc.raw.includes("'200'") && !o
 console.log("\n" + "=".repeat(50));
 if (hasError) {
   console.error("API 계약 검증 실패. 위 오류를 수정 후 다시 시도하세요.");
-  console.error("관련 문서: docs/collaboration-interface.md");
+  console.error("관련 문서: docs/integration-sandbox/collaboration-interface.md");
   process.exit(1);
 } else {
   console.log("API 계약 검증 통과.");

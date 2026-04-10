@@ -63,7 +63,7 @@
 - A: `agents/orchestrator/**`, 라우팅/정책 문서
 - B: `apps/api/**`, `specs/openapi/**`, `specs/data-model/**`
 - C: `apps/web/**`, 프론트 UX 문서
-- D: `.github/**`, `scripts/**`, VFS/연동 관련 문서
+- D: `.github/**`, `scripts/**`, `docs/integration-sandbox/**`, VFS/연동 관련 문서
 
 ## Branch & PR Rule
 

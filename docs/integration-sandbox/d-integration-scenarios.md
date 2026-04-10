@@ -1,7 +1,7 @@
 # D. 인테그레이션 & 샌드박스 — 시나리오 정의
 
 > 담당: D (한승준)
-> 관련 문서: `docs/d-integration-pipeline.md`, `docs/collaboration-interface.md`
+> 관련 문서: [`d-integration-pipeline.md`](d-integration-pipeline.md), [`collaboration-interface.md`](collaboration-interface.md)
 
 ---
 
@@ -308,4 +308,4 @@ sequenceDiagram
 
 ### 이벤트 발행 채널
 - 모든 이벤트: Redis Pub/Sub `integration:events`
-- 이벤트 스키마: `docs/collaboration-interface.md` 2절 참조
+- 이벤트 스키마: [`collaboration-interface.md`](collaboration-interface.md) 2절 참조
