@@ -1,35 +1,47 @@
 import "reflect-metadata";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PG_READY_FLAG } from "./pg-ready-flag";
 
 const dbPath = path.join(os.tmpdir(), `usvibe-e2e-${process.pid}-${Date.now()}.db`);
 
+/** globalSetup이 127.0.0.1:5432 Postgres 도달 가능 여부를 기록한다. 없으면 TypeORM 부팅이 멈춰 훅 타임아웃 난다. */
+const pgUp =
+  fs.existsSync(PG_READY_FLAG) && fs.readFileSync(PG_READY_FLAG, "utf8").trim() === "1";
+
+if (!pgUp) {
+  // eslint-disable-next-line no-console -- 테스트 스킵 시 원인 안내
+  console.warn(
+    "\n[apps/api e2e] PostgreSQL(127.0.0.1:5432)에 연결할 수 없어 e2e를 건너뜁니다.\n" +
+      "  전체 실행: Docker 설치 후 `npm run db:up && npm run db:wait && npm run migrate` 뒤 `npm run test -w api`\n"
+  );
+}
+
 let app: INestApplication;
 
-beforeAll(async () => {
-  process.env.DATABASE_PATH = dbPath;
-  process.env.JWT_SECRET = "e2e-test-secret";
-  const { AppModule } = await import("../src/app.module");
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  app = moduleRef.createNestApplication({ rawBody: true });
-  await app.init();
-});
+describe.skipIf(!pgUp)("App (e2e)", () => {
+  beforeAll(async () => {
+    process.env.DATABASE_PATH = dbPath;
+    process.env.JWT_SECRET = "e2e-test-secret";
+    const { AppModule } = await import("../src/app.module");
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication({ rawBody: true });
+    await app.init();
+  });
 
-afterAll(async () => {
-  await app?.close();
-  try {
-    fs.unlinkSync(dbPath);
-  } catch {
-    /* ignore */
-  }
-});
-
-describe("App (e2e)", () => {
+  afterAll(async () => {
+    await app?.close();
+    try {
+      fs.unlinkSync(dbPath);
+    } catch {
+      /* ignore */
+    }
+  });
   it("GET /health", async () => {
     const res = await request(app.getHttpServer()).get("/health").expect(200);
     expect(res.body.ok).toBe(true);
@@ -62,3 +74,4 @@ describe("App (e2e)", () => {
       .expect(401);
   });
 });
+

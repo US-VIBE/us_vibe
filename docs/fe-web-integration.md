@@ -117,7 +117,7 @@ npm test
 ```
 
 - **웹**: `apps/web` — `vitest`, 순수 함수 단위 (`lib/*.test.ts`)
-- **API**: `apps/api` — `vitest` + `supertest` (Postgres 등 의존 시 DB 기동 필요)
+- **API**: `apps/api` — `vitest` + `supertest`. **Postgres가 `127.0.0.1:5432`에 없으면 e2e 3개는 자동 스킵**되고(실패 아님), DB를 올린 뒤에만 실제 HTTP 검증이 돈다.
 
 CI에서는 `npm run build`와 함께 `npm test`를 붙이면 된다.
 

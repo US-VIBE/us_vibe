@@ -5,6 +5,8 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.e2e.ts"],
     fileParallelism: false,
-    testTimeout: 60000
+    testTimeout: 60000,
+    hookTimeout: 60000,
+    globalSetup: ["./vitest.global-setup.ts"]
   }
 });
