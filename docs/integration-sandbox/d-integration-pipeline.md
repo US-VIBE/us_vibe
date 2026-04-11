@@ -75,6 +75,7 @@ flowchart TD
 | 책임 | GitHub Webhook 수신, HMAC-SHA256 서명 검증(`GITHUB_WEBHOOK_SECRET`), 이벤트 타입 파싱 |
 | 처리 이벤트 | `pull_request` (opened/synchronize/closed), `push` |
 | 실패 처리 | 서명 불일치 시 `401` 반환, 지원하지 않는 이벤트는 `200` ACK 후 무시 |
+| 선택 하드닝 | `WEBHOOK_ALLOWLIST`(또는 `WEBHOOK_ALLOWED_CIDRS`)가 비어 있지 않으면 클라이언트 IP(또는 `WEBHOOK_TRUST_PROXY=1` 시 Express `trust proxy` + `req.ip`)가 목록·IPv4 CIDR에 없으면 `403`. 전역 레이트리밋·WAF는 인프라(B) 권장. |
 
 **서명 검증 흐름:**
 ```
@@ -206,7 +207,7 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | 위치 | `scripts/code-delta-analyzer.js` |
 | 책임 | git diff 기반으로 변경된 엔드포인트/DTO/에러 정책을 분석해 `CodeDeltaSummary` 생성 |
 | 트리거 | GitHub `push` 웹훅에서 `CODE_DELTA_BASE_SHA`/`CODE_DELTA_HEAD_SHA`로 실행; CI에서도 동일 스크립트 실행 가능 |
-| 출력 | `CODE_DELTA_ANALYZED` 이벤트로 발행 → A가 SSOT `codeDeltaSummary` 필드 갱신 |
+| 출력 | `CODE_DELTA_ANALYZED` 이벤트로 발행. 동시에 `INTEGRATION_WEBHOOK_SESSION_ID`에 해당하는 **`workspace_session` 행이 있으면** SQLite `ProjectState.codeDeltaSummary` 병합(O-4). Postgres SSOT·A 오케스트레이터 갱신은 별 티켓(B/A). |
 
 ---
 
@@ -229,9 +230,10 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 |-------------|-----------|
 | Webhook 서명 불일치 | 401 반환, 로그 기록, 알림 없음 |
 | `GITHUB_WEBHOOK_REQUIRE_SIGNATURE=1` 인데 시크릿 비어 있음 | 401(또는 설정 오류) — 운영에서 서명 없이 열리지 않음 |
+| IP 허용 목록 설정인데 클라이언트 IP 불일치 | `403`, 로그 기록 |
 | 정적 검증 실패 | PR merge 블록 + PR 코멘트 + `VALIDATION_FAILED` 이벤트 발행 |
 | GitHub API 호출 실패 | 최대 3회 재시도 (지수 백오프), 실패 시 에러 로그만 기록 |
-| Redis Pub/Sub 발행 실패 | **P-1:** 동일 프로세스 내 지수 백오프 재시도(`INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS`, 기본 3) 후 실패 시 로그. (BullMQ 등 외부 큐는 V2) |
+| Redis Pub/Sub 발행 실패 | **P-1:** 동일 프로세스 내 지수 백오프 재시도(`INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS`, 기본 3) 후 실패 시 로그. Pub/Sub 자체를 BullMQ로 옮기는 것은 선택 후속. |
 | VFS 스냅샷 저장 실패 | `500` 반환 + 에러 로그, AI 에이전트에게 재시도 안내 |
 
 ---
@@ -241,7 +243,7 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 - 동일 PR에 대해 검증 재시도 최대 **5회** (5회 초과 시 `VALIDATION_LOOP_DETECTED` 이벤트 발행 후 중단)
 - VFS 승인 없이 자동으로 실제 브랜치에 쓰는 동작 **금지**
 - Webhook 정적 검증: `WEBHOOK_VALIDATION_MAX_MS`(기본 28000ms) 상한으로 동기 레이스.
-- **P-2 (인메모리 큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 **Nest 프로세스 내 순차 큐**에서 실행한다. 동기 모드에서 **타임아웃**이 나면 같은 큐로 넘겨 재시도한다(중복 실행 가능성은 문서화된 제한).
+- **P-2 (큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 큐에서 실행한다. **`INTEGRATION_BULLMQ=1`이고 `REDIS_URL`이 있으면** BullMQ 큐 `integration-pr-validate`(Redis 영속, 워커는 현재 API 프로세스 내 `concurrency: 1`). 그렇지 않으면 **인메모리 순차 큐**. 동기 모드에서 **타임아웃**이 나면 동일 큐로 이관한다(다중 인스턴스·중복 실행은 운영 시 jobId·GitHub 재전송 정책으로 완화).
 
 ---
 
@@ -256,6 +258,9 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | PR 코멘트 자동 생성 | ✅ | — |
 | SQLite 통합 이벤트 스트림 | ✅ | — |
 | Redis Pub/Sub 중복 발행 | 선택 (`INTEGRATION_REDIS_PUBLISHER`) | — |
+| PR 검증 영속 큐 (BullMQ + Redis) | 선택 (`INTEGRATION_BULLMQ`) | 별도 워커 프로세스 분리는 후속 |
+| SQLite `ProjectState.codeDeltaSummary` (push 웹훅) | ✅ (`workspace_session` 행 있을 때만) | Postgres 단일 SSOT는 B 합의 |
+| 웹훅 IP/CIDR 허용 목록 | 선택 (`WEBHOOK_ALLOWLIST`) | 전역 WAF·레이트리밋 |
 | 동적 E2E 검증 (Playwright) | — | ✅ |
 | 완전 자동 로컬 IDE 동기화 | — | ✅ |
 | 실 Git 자동 머지/푸시 | — | ✅ |

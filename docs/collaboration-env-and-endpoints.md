@@ -83,7 +83,10 @@
 | `GITHUB_WEBHOOK_SECRET`, `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` | 연동·리포트 ([webhook](../apps/api/src/integration/webhook.controller.ts) 등) |
 | `GITHUB_WEBHOOK_REQUIRE_SIGNATURE` | (선택) `1`/`true`이면 **`GITHUB_WEBHOOK_SECRET` 비어 있을 때 웹훅 요청 거부**(운영에서 서명 없이 열리지 않음). 미설정 시 기존처럼 시크릿 없으면 서명 검증 생략 |
 | `WEBHOOK_VALIDATION_MAX_MS` | (선택) PR 정적 검증 `runAll` 동기 레이스 상한(ms). 기본 `28000`. 초과 시 **P-2:** 인메모리 큐로 이관 후 HTTP는 이미 200이면 백그라운드에서 계속 |
-| `WEBHOOK_VALIDATION_ASYNC` | (선택) `1`/`true`이면 PR 이벤트 발행 후 **정적 검증은 프로세스 내 순차 큐**에서 실행·HTTP는 빨리 200 |
+| `WEBHOOK_VALIDATION_ASYNC` | (선택) `1`/`true`이면 PR 이벤트 발행 후 **큐**에서 검증·HTTP는 빨리 200 |
+| `INTEGRATION_BULLMQ` | (선택) `1`/`true`이고 **`REDIS_URL` 필수**이면 PR 검증을 **BullMQ**(`integration-pr-validate`)에 넣음. 없으면 인메모리 순차 큐 |
+| `WEBHOOK_ALLOWLIST` | (선택) 웹훅 허용 IP·IPv4 CIDR 쉼표 목록. 비어 있으면 제한 없음. `WEBHOOK_ALLOWED_CIDRS` 별칭 |
+| `WEBHOOK_TRUST_PROXY` | (선택) `1`/`true`이면 Express `trust proxy` — 프록시 뒤 `req.ip`/허용 목록이 의미 있게 동작 |
 | `INTEGRATION_REDIS_PUBLISHER` | `1` 또는 `true`이고 `REDIS_URL`이 있으면 통합 이벤트를 Pub/Sub로도 발행 |
 | `INTEGRATION_REDIS_CHANNEL` | (선택) Pub/Sub 채널명. 기본 `integration:events` |
 | `INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS` | (선택) Pub/Sub `publish` 실패 시 **P-1** 동일 프로세스 재시도 횟수. 기본 `3` |
