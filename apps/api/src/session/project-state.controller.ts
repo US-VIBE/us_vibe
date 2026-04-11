@@ -43,7 +43,9 @@ export class ProjectStateController {
       openQuestions:
         body.openQuestions !== undefined ? [...body.openQuestions] : [...cur.openQuestions],
       activeSprintGoal:
-        body.activeSprintGoal !== undefined ? body.activeSprintGoal : cur.activeSprintGoal
+        body.activeSprintGoal !== undefined ? body.activeSprintGoal : cur.activeSprintGoal,
+      codeDeltaSummary: cur.codeDeltaSummary,
+      lastCodeDeltaAt: cur.lastCodeDeltaAt,
     };
     if (body.expectedVersion != null && body.expectedVersion !== cur.stateVersion) {
       return {

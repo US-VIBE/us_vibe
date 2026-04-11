@@ -16,6 +16,7 @@ import { IntegrationEventFanoutService } from "./integration-event-fanout.servic
 import { IntegrationTimelineBridgeService } from "./integration-timeline-bridge.service";
 import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.service";
+import { WebhookPrValidationService } from "./webhook-pr-validation.service";
 
 @Module({
   imports: [AuthModule, CollaborationModule, SessionsModule],
@@ -32,6 +33,7 @@ import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.servic
     ReportService,
     CodeDeltaRunnerService,
     IntegrationRedisPubSubService,
+    WebhookPrValidationService,
     IntegrationEventFanoutService,
     IntegrationTimelineBridgeService,
     /** SQLite append + optional Redis Pub/Sub(INTEGRATION_REDIS_PUBLISHER) */

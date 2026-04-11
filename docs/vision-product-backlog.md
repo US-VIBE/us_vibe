@@ -4,7 +4,7 @@
 
 **최종 목표**는 좁은 MVP 완주가 아니라 [AI 협업 에이전트 설계](ai_협업_에이전트_설계_10198352.plan.md)에 기술된 **제품·AI 협업 비전 전체**이다. [plan.md](plan.md)의 MVP·V2는 **단계 마일스톤**으로만 본다.
 
-워크 방식: [살아 있는 설계 역반영](design-living-revisions.md).
+워크 방식: [살아 있는 설계 역반영](design-living-revisions.md). 역할 D 파이프라인 변경 시: [D 주도 구현·FE/BE 맞춤](integration-sandbox/d-owner-workflow-fe-be-handoff.md).
 
 ---
 
@@ -30,7 +30,7 @@
 | O-1 | 세션 오케스트레이터·상태머신과 REST·정책 MD·런타임(LangGraph/Supervisor 등) 연결 | A, B | 호출 경로·세션 키·실패 시나리오 스펙 분리 |
 | O-2 | Role Gap 규칙·에이전트 프롬프트·금지 정책을 구현·버전 관리 가능 수준으로 고정 | A | `agents/**`와 설계서 동기화 |
 | O-3 | 학습·협업 KPI·회고를 오케스트레이터·이벤트 로그와 일관되게 묶기 | A, B | [retro-kpi.util.ts](../apps/api/src/session/retro-kpi.util.ts)와 정합 |
-| O-4 | `codeDeltaSummary` → `ProjectState` 필드·웹훅 파이프·쓰기 시점 정의 | B, D | 설계 §47-1 등 본문과 SSOT 단일화 |
+| O-4 | `codeDeltaSummary` → `ProjectState` 필드·웹훅 파이프·쓰기 시점 정의 | B, D | SQLite `ProjectState` 병합·push 웹훅 (2026-04-10). Postgres SSOT·A 갱신은 후속 |
 | O-5 | 영향도 리포트·PM 스케줄러·샌드박스 미리보기 — MVP/V2 경계 재검토 후 티켓화 | A, B, D | 설계 본문 백로그로 쪼개기 |
 
 ---
@@ -69,7 +69,7 @@
 | ID | 항목 | 담당 |
 |----|------|------|
 | S-1 | 학습 `sessionId`와 계정·테넌시 강결합 | B |
-| S-2 | 웹훅 서명·남용 방지·운영 하드닝 | D, B |
+| S-2 | 웹훅 서명·남용 방지·운영 하드닝 (`GITHUB_WEBHOOK_REQUIRE_SIGNATURE`, IP 허용 목록 `WEBHOOK_ALLOWLIST`, 2026-04-10~) | D, B |
 
 근거: [fe-web-integration.md](fe-web-integration.md) §7.
 
@@ -79,8 +79,8 @@
 
 | ID | 항목 | 담당 |
 |----|------|------|
-| P-1 | Redis Pub/Sub 실패 재시도·큐(예: BullMQ) | D |
-| P-2 | 웹훅 정적 검증 비동기 큐·타임아웃 정책 | D |
+| P-1 | Redis Pub/Sub 실패 재시도·큐(예: BullMQ) — Pub/Sub: 동일 프로세스 재시도(2026-04-10); **PR 검증 영속 큐: `INTEGRATION_BULLMQ`(2026-04-10)** | D |
+| P-2 | 웹훅 정적 검증 비동기 큐·타임아웃 정책 — 인메모리 또는 **`INTEGRATION_BULLMQ`+Redis**(2026-04-10) | D |
 
 근거: [d-integration-pipeline.md](integration-sandbox/d-integration-pipeline.md).
 
