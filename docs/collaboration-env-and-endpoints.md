@@ -81,6 +81,10 @@
 | `INTEGRATION_WEBHOOK_SESSION_ID` | GitHub 웹훅이 발행하는 `IntegrationEvent.sessionId`. 미설정 시 `github-ingest`. **`GET /sessions/:id/timeline`(Postgres)과 같은 세션으로 보이게 하려면 실제 시뮬 세션 UUID**로 둔다. 그렇지 않으면 SQLite `integration_events`와 타임라인은 분리된다. |
 | `VFS_STORAGE_PATH` | VFS 스냅샷 저장 경로 ([vfs](../apps/api/src/integration/vfs.service.ts)) |
 | `GITHUB_WEBHOOK_SECRET`, `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` | 연동·리포트 ([webhook](../apps/api/src/integration/webhook.controller.ts) 등) |
+| `WEBHOOK_VALIDATION_MAX_MS` | (선택) PR 정적 검증 `runAll` 상한(ms). 기본 `28000`. 초과 시 검증 중단·로그만 |
+| `INTEGRATION_REDIS_PUBLISHER` | `1` 또는 `true`이고 `REDIS_URL`이 있으면 통합 이벤트를 Pub/Sub로도 발행 |
+| `INTEGRATION_REDIS_CHANNEL` | (선택) Pub/Sub 채널명. 기본 `integration:events` |
+| `US_VIBE_REPO_ROOT` | (선택) 모노레포 루트 — push 웹훅에서 `code-delta-analyzer.js` 실행 시 `package.json` name `us-vibe` 탐색 실패 시 지정 |
 
 ---
 

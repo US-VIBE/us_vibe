@@ -1,7 +1,7 @@
 # D. 인테그레이션 & 샌드박스 — 파이프라인 설계
 
 > 담당: D (한승준)
-> 관련 문서: `docs/collaboration-interface.md`, `docs/d-integration-scenarios.md`
+> 관련 문서: [`collaboration-interface.md`](collaboration-interface.md), [`d-integration-scenarios.md`](d-integration-scenarios.md)
 
 ---
 
@@ -29,8 +29,8 @@ flowchart TD
   vfsSnapshot["VFS Snapshot Creator\nPOST /api/vfs/snapshot"]
   failReport["Failure Report Generator\nPR 코멘트 자동 작성"]
 
-  ssotEvent["IntegrationEvent 발행\nRedis: integration:events"]
-  orchestratorA["A (오케스트레이터)\nGate 상태 전환 / SSOT 갱신"]
+  ssotEvent["IntegrationEvent 발행\nSQLite integration_events\n(+ optional Redis Pub/Sub)"]
+  orchestratorA["A (오케스트레이터)\n폴링/구독·SSOT 갱신"]
 
   githubEvent --> webhookEndpoint
   webhookEndpoint --> eventRouter
@@ -203,27 +203,21 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 |------|------|
 | 위치 | `scripts/code-delta-analyzer.js` |
 | 책임 | git diff 기반으로 변경된 엔드포인트/DTO/에러 정책을 분석해 `CodeDeltaSummary` 생성 |
-| 트리거 | `CODE_COMMITTED` 이벤트 (push) |
+| 트리거 | GitHub `push` 웹훅에서 `CODE_DELTA_BASE_SHA`/`CODE_DELTA_HEAD_SHA`로 실행; CI에서도 동일 스크립트 실행 가능 |
 | 출력 | `CODE_DELTA_ANALYZED` 이벤트로 발행 → A가 SSOT `codeDeltaSummary` 필드 갱신 |
 
 ---
 
-## 3. 이벤트 발행 흐름 (Redis Pub/Sub)
+## 3. 이벤트 발행 흐름 (SQLite 1차, Redis 선택)
 
-```
-채널: integration:events
+**1차 저장소:** Nest `EventPublisherSqlite` → 워크스페이스 SQLite `integration_events` 테이블. 조회: `GET /api/integration/events` (Bearer).
 
-발행자: D (apps/api/src/integration)
-수신자: A (LangGraph Orchestrator)
+**선택 — Redis Pub/Sub:** `REDIS_URL`이 있고 `INTEGRATION_REDIS_PUBLISHER=1`이면 동일 페이로드를 채널 `INTEGRATION_REDIS_CHANNEL`(기본 `integration:events`)로도 발행한다. JWT 폐기와 같은 Redis 인스턴스를 쓸 수 있으나 **키/채널이 분리**된다. A는 폴링 또는 이 채널 구독 중 팀이 합의한 방식을 쓴다.
 
-발행 시점:
-  - VALIDATION_PASSED  → Gate B 전환 가능 알림
-  - VALIDATION_FAILED  → PR 재작업 필요 알림
-  - CODE_DELTA_ANALYZED → SSOT codeDeltaSummary 갱신 요청
-  - CONTRACT_CHANGED   → FE/QA 에이전트에게 영향 범위 확인 요청
-  - VFS_SNAPSHOT_CREATED → 학습자 승인 대기 상태 알림
-  - VFS_APPROVED       → Shadow Branch → 실제 브랜치 반영 알림
-```
+**발행 시점(요약):**
+  - `VALIDATION_PASSED` / `VALIDATION_FAILED` / `VALIDATION_LOOP_DETECTED`
+  - `CODE_DELTA_ANALYZED` (push 시 `scripts/code-delta-analyzer.js` 결과)
+  - `CONTRACT_CHANGED`, `VFS_*`, PR 이벤트 등 [collaboration-interface.md](collaboration-interface.md) 표준 타입
 
 ---
 
@@ -234,7 +228,7 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | Webhook 서명 불일치 | 401 반환, 로그 기록, 알림 없음 |
 | 정적 검증 실패 | PR merge 블록 + PR 코멘트 + `VALIDATION_FAILED` 이벤트 발행 |
 | GitHub API 호출 실패 | 최대 3회 재시도 (지수 백오프), 실패 시 에러 로그만 기록 |
-| Redis 발행 실패 | 큐(BullMQ)에 재시도 작업 등록 (최대 3회) |
+| Redis Pub/Sub 발행 실패 | 로그 경고 후 스킵 (BullMQ 재시도는 **V2**) |
 | VFS 스냅샷 저장 실패 | `500` 반환 + 에러 로그, AI 에이전트에게 재시도 안내 |
 
 ---
@@ -243,7 +237,7 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 
 - 동일 PR에 대해 검증 재시도 최대 **5회** (5회 초과 시 `VALIDATION_LOOP_DETECTED` 이벤트 발행 후 중단)
 - VFS 승인 없이 자동으로 실제 브랜치에 쓰는 동작 **금지**
-- Webhook 처리 타임아웃: **30초** (초과 시 비동기 큐로 이관)
+- Webhook 정적 검증: 환경변수 `WEBHOOK_VALIDATION_MAX_MS`(기본 28000ms) 초과 시 검증 중단·로그만 남김 (**비동기 큐 이관은 V2**)
 
 ---
 
@@ -256,7 +250,8 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | OpenAPI 계약 검증 (정적) | ✅ | — |
 | VFS 스냅샷 저장 + 학습자 승인 | ✅ | — |
 | PR 코멘트 자동 생성 | ✅ | — |
-| Redis 이벤트 발행 | ✅ | — |
+| SQLite 통합 이벤트 스트림 | ✅ | — |
+| Redis Pub/Sub 중복 발행 | 선택 (`INTEGRATION_REDIS_PUBLISHER`) | — |
 | 동적 E2E 검증 (Playwright) | — | ✅ |
 | 완전 자동 로컬 IDE 동기화 | — | ✅ |
 | 실 Git 자동 머지/푸시 | — | ✅ |

@@ -7,6 +7,7 @@
 ## Gate B: API Contract
 - [ ] OpenAPI v1 승인
 - [ ] FE/QA 계약 검증 통과
+- [ ] `specs/api-contract.md` 엔드포인트 목록이 `specs/openapi/v1.yaml`과 일치 (`npm run` 루트 스크립트의 contract-validation / `node scripts/validate-api-contract.js`)
 
 ## Gate C: Review
 - [ ] PR 코멘트 반영
