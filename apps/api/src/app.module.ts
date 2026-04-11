@@ -10,8 +10,10 @@ import { PersistenceModule } from "./persistence/persistence.module";
 import { RedisIntegrationModule } from "./redis/redis.module";
 import { ContractGateController } from "./session/contract-gate.controller";
 import { PrReviewController } from "./session/pr-review.controller";
+import { ProjectStateController } from "./session/project-state.controller";
 import { RetroController } from "./session/retro.controller";
 import { SessionController } from "./session/session.controller";
+import { WorkspaceDodVerifyController } from "./session/workspace-dod-verify.controller";
 import { SessionsModule } from "./sessions/sessions.module";
 
 @Module({
@@ -32,7 +34,9 @@ import { SessionsModule } from "./sessions/sessions.module";
     SessionController,
     PrReviewController,
     ContractGateController,
-    RetroController
+    RetroController,
+    ProjectStateController,
+    WorkspaceDodVerifyController
   ],
   providers: []
 })
