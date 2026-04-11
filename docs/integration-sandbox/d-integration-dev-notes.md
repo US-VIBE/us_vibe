@@ -31,7 +31,7 @@
   - `VFS_SNAPSHOT_CREATED`, `VFS_APPROVED`
 - D 소유 엔드포인트 5개 확정
   - `POST /webhooks/github` — GitHub Webhook 수신
-  - `GET /api/validation/status/:prNumber` — 검증 상태 조회
+  - `GET /api/validation/status/:prNumber` — 검증 상태 조회 (SQLite `pr_validation_cache`, 웹훅 `runAll` 후 갱신)
   - `POST /api/vfs/snapshot` — AI 산출물 VFS 저장
   - `GET /api/vfs/diff/:snapshotId` — Diff 조회
   - `POST /api/vfs/approve/:snapshotId` — 학습자 승인

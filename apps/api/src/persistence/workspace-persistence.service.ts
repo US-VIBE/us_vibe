@@ -46,6 +46,13 @@ export interface RetroReport {
   nextActions: [string, string, string];
 }
 
+/** GitHub 웹훅 정적 검증 결과 — SQLite `pr_validation_cache` SSOT */
+export interface PrValidationStatusRecord {
+  prNumber: number;
+  result: ValidationResult;
+  checkedAt: string;
+}
+
 function idlePr(sessionId: string): PrSnap {
   return {
     sessionId,
@@ -92,6 +99,11 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       );
       CREATE INDEX IF NOT EXISTS idx_integration_events_session_id
         ON integration_events (session_id, id DESC);
+      CREATE TABLE IF NOT EXISTS pr_validation_cache (
+        pr_number INTEGER PRIMARY KEY,
+        result_json TEXT NOT NULL,
+        checked_at TEXT NOT NULL
+      );
     `);
     this.logger.log(`SQLite workspace state: ${dbPath}`);
   }
@@ -213,6 +225,35 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       `[integration] ${resolved.type} session=${resolved.sessionId} v=${resolved.stateVersion} by=${resolved.triggeredBy}`
     );
     return resolved;
+  }
+
+  savePrValidationResult(prNumber: number, result: ValidationResult): void {
+    const checkedAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO pr_validation_cache (pr_number, result_json, checked_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(pr_number) DO UPDATE SET
+           result_json = excluded.result_json,
+           checked_at = excluded.checked_at`
+      )
+      .run(prNumber, JSON.stringify(result), checkedAt);
+  }
+
+  getPrValidationResult(prNumber: number): PrValidationStatusRecord | null {
+    const row = this.db
+      .prepare(
+        "SELECT result_json, checked_at FROM pr_validation_cache WHERE pr_number = ?"
+      )
+      .get(prNumber) as { result_json: string; checked_at: string } | undefined;
+    if (!row) {
+      return null;
+    }
+    return {
+      prNumber,
+      result: JSON.parse(row.result_json) as ValidationResult,
+      checkedAt: row.checked_at
+    };
   }
 
   listIntegrationEvents(sessionId: string | undefined, limit: number): IntegrationEvent[] {
