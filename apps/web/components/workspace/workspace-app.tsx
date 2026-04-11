@@ -50,6 +50,7 @@ import { clearRetroPersist, loadRetroPersist, saveRetroPersist } from "@/lib/ret
 import { fetchAgentReply } from "@/lib/chat-ai";
 import type { ChatMessage } from "@/lib/chat-types";
 import { IntegrationEventsPanel } from "@/components/workspace/integration-events-panel";
+import { IntegrationToolsPanel } from "@/components/workspace/integration-tools-panel";
 
 export type { ChatMessage };
 
@@ -127,6 +128,7 @@ export function WorkspaceApp({
   const [gapError, setGapError] = useState<string | null>(null);
   const agentReplyIndex = useRef(0);
   const [chatSending, setChatSending] = useState(false);
+  const [sseThinkingLines, setSseThinkingLines] = useState<string[]>([]);
 
   const [promptDraft, setPromptDraft] = useState(
     () => `주제: ${session.topic}\n\n이번 스프린트에서 구현할 범위와 완료 조건을 구체화해 주세요.\n`
@@ -545,6 +547,11 @@ export function WorkspaceApp({
       chatSending,
       messages.length
     ]
+  );
+
+  const combinedThinkingLines = useMemo(
+    () => [...thinkingR1Lines, ...sseThinkingLines.map((line) => `[stream] ${line}`)],
+    [thinkingR1Lines, sseThinkingLines]
   );
 
   const sprintCheckpoints = useMemo(
@@ -1359,7 +1366,16 @@ export function WorkspaceApp({
                       return <p className="text-sm text-amber-800">로그인 후 Bearer 토큰으로 이벤트를 불러옵니다.</p>;
                     }
                     return (
-                      <IntegrationEventsPanel apiBaseUrl={base} sessionId={session.sessionId} pollMs={5000} />
+                      <>
+                        <IntegrationEventsPanel apiBaseUrl={base} sessionId={session.sessionId} pollMs={5000} />
+                        <IntegrationToolsPanel
+                          apiBaseUrl={base}
+                          session={session}
+                          onIntegrationSseLine={(line) =>
+                            setSseThinkingLines((prev) => [...prev.slice(-14), line])
+                          }
+                        />
+                      </>
                     );
                   })()}
                 </div>
@@ -1376,7 +1392,7 @@ export function WorkspaceApp({
               <span className="text-sm font-medium text-slate-800">Thinking (R1)</span>
             </div>
             <ul className="max-h-[200px] space-y-1 overflow-y-auto px-3 pb-3 font-mono text-[11px] leading-relaxed text-slate-600">
-              {thinkingR1Lines.map((line, i) => (
+              {combinedThinkingLines.map((line, i) => (
                 <li key={i}>{line}</li>
               ))}
             </ul>

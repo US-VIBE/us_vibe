@@ -21,6 +21,8 @@ export interface RoleGapSnapshot {
   humanRoleLabels: string[];
   /** 결손 보강으로 채팅에 참여하는 에이전트 (서버 계산 결과) */
   injectedAgents: InjectedAgent[];
+  /** 사람이 맡은 역할과 겹치는 AI — 코파일럿 모드 */
+  copilotAgents?: InjectedAgent[];
   /** 한 줄 요약 */
   summary: string;
 }

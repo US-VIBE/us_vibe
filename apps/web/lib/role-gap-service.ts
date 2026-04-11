@@ -44,13 +44,14 @@ function parseSnapshot(body: unknown): RoleGapSnapshot | null {
   const data = (o.data as Record<string, unknown> | undefined) ?? o;
   if (typeof data.sessionId !== "string") return null;
   const agents = parseInjectedAgents(data.injectedAgents);
-  if (agents.length === 0) return null;
+  const copilots = parseInjectedAgents(data.copilotAgents);
   return {
     sessionId: data.sessionId,
     stateVersion: typeof data.stateVersion === "number" ? data.stateVersion : 1,
     humanRoleIds: Array.isArray(data.humanRoleIds) ? (data.humanRoleIds as string[]) : [],
     humanRoleLabels: Array.isArray(data.humanRoleLabels) ? (data.humanRoleLabels as string[]) : [],
     injectedAgents: agents,
+    copilotAgents: copilots.length ? copilots : undefined,
     summary: typeof data.summary === "string" ? data.summary : ""
   };
 }
