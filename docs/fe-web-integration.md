@@ -183,6 +183,8 @@ UUID를 한 줄로 맞추는 절차는 [`docs/integration-sandbox/session-id-syn
 
 ## 8. 관련 문서
 
+- **비전 백로그·FE/BE 큐:** [`vision-product-backlog.md`](./vision-product-backlog.md), [`handoff-fe-be-collaboration-recommendations.md`](./handoff-fe-be-collaboration-recommendations.md)
+- **살아 있는 설계 역반영:** [`design-living-revisions.md`](./design-living-revisions.md)
 - **협업 통합·엔드포인트·변수명:** [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md)
 - **세션 ID 동기화(학습·시뮬·웹훅):** [`integration-sandbox/session-id-sync.md`](integration-sandbox/session-id-sync.md)
 - 설계: `docs/ai_협업_에이전트_설계_*.plan.md`

@@ -11,6 +11,9 @@
 
 | 문서 | 설명 |
 |------|------|
+| [`../vision-product-backlog.md`](../vision-product-backlog.md) | 비전 대비 백로그·에픽·역할(A/B/C/D) |
+| [`../design-living-revisions.md`](../design-living-revisions.md) | 구현·파일럿 → 설계 문서 역반영 절차 |
+| [`../handoff-fe-be-collaboration-recommendations.md`](../handoff-fe-be-collaboration-recommendations.md) | FE/BE 연동 권장 사양·티켓 후보 |
 | [`collaboration-interface.md`](collaboration-interface.md) | A/B/C와 맞출 이벤트·엔드포인트·환경변수·공유 타입 |
 | [`event-vocabulary-map.md`](event-vocabulary-map.md) | `IntegrationEventType` ↔ Postgres `collaboration_events.eventType` 매핑 |
 | [`session-id-sync.md`](session-id-sync.md) | 학습 sessionId · 시뮬 UUID · `INTEGRATION_WEBHOOK_SESSION_ID` 맞추기 |
