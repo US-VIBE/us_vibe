@@ -19,6 +19,7 @@ import { CollaborationService } from "./collaboration.service";
         new CollaborationEventsDataService(repo),
       inject: [getRepositoryToken(CollaborationEvent)]
     }
-  ]
+  ],
+  exports: [CollaborationService]
 })
 export class CollaborationModule {}
