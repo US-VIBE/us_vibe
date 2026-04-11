@@ -30,7 +30,7 @@
 
 ## 타임라인 병합 대안
 
-현재 구현은 **이중 기록(append)** 이다. SQLite만 조회하는 단일 타임라인 API가 필요하면 B와 스펙 합의 후 `GET /sessions/:id/timeline` 확장 또는 BFF 병합을 검토한다.
+현재 구현은 **이중 기록(append)** 이다. 워크스페이스용으로 **`GET /api/integration/unified-timeline?sessionId=&limit=`** 가 SQLite `integration_events`와 Postgres `GET /sessions/:id/timeline` 결과를 한 JSON에 담는다(세션이 Postgres에 없으면 `postgresNote`에 이유). 단일 뷰만 필요하면 FE는 이 엔드포인트를 쓰거나, B와 합의해 `GET /sessions/:id/timeline` 확장을 검토한다.
 
 ## 변경 시
 

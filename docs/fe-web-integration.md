@@ -85,6 +85,13 @@ CORS는 API에서 `origin: true`, `credentials: true`로 설정되어 있다.
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/api/integration/events` | 통합 이벤트 로그 조회 |
+| GET | `/api/integration/unified-timeline` | SQLite 이벤트 + Postgres `collaboration_events` 병합(세션 UUID일 때 후자) |
+| GET | `/api/integration/stream` | SSE Thought Stream — 브라우저는 `EventSource` 대신 **fetch + Authorization** ([`integration-sse.ts`](../apps/web/lib/integration-sse.ts)) |
+| GET | `/api/validation/status/{prNumber}` | PR 정적 검증 캐시 + `consecutiveFailures` 루프 가드 |
+| POST | `/api/vfs/snapshot` | VFS 스냅샷 — 응답 `diffUrl`은 **API 기준 경로**이므로 전체 URL은 `NEXT_PUBLIC_API_URL` + `diffUrl` 결합 ([`vfs-api.ts`](../apps/web/lib/vfs-api.ts) `resolveVfsDiffUrl`) |
+| GET/POST | `/api/vfs/diff/{id}`, `/api/vfs/approve/{id}` | Diff 조회 · 승인 |
+| GET/PATCH | `/api/sessions/{id}/session-profile`, `.../workspace-gates`, `.../project-state` | Sprint1 역할·게이트·SSOT |
+| POST | `/api/sessions/{id}/workspace-dod-verify` | 계약 스크립트 + 워크스페이스 게이트 DoD 검증 |
 
 #### 통합 이벤트 폴링
 
@@ -95,7 +102,7 @@ PR·정적 검증·VFS 관련 알림을 FE에서 따라갈 때는 **Bearer**로 
 - **응답:** `{ ok: true, data: { events: IntegrationEvent[] } }` — 이벤트는 SQLite 기준 **최신이 먼저** 오며, 필드 정의는 `specs/data-model/types.ts`의 `IntegrationEvent` 참고.
 - **sessionId:** 생략하면 DB 전역에서 최근 `limit`건(디버깅용). 운영·시뮬 정렬에는 GitHub 웹훅과 동일한 값으로 좁힌다 — 환경 변수 `INTEGRATION_WEBHOOK_SESSION_ID`(미설정 시 서버 기본 `github-ingest`) 또는 **실제 시뮬 세션 UUID**([`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) §3).
 - **Postgres 타임라인과의 관계:** `GET /sessions/:id/timeline`은 `collaboration_events`만 본다. 웹훅 `sessionId`를 시뮬 UUID로 맞추면 동일 이벤트가 Postgres에도 미러될 수 있다 — [`docs/integration-sandbox/event-vocabulary-map.md`](integration-sandbox/event-vocabulary-map.md).
-- **워크스페이스 UI:** 스토리 탭 **「연동 · CI/이벤트」** 에서 위 API를 약 5초 간격으로 폴링한다([`integration-events-panel.tsx`](../apps/web/components/workspace/integration-events-panel.tsx)).
+- **워크스페이스 UI:** 스토리 탭 **「연동 · CI/이벤트」** 에서 위 API를 약 5초 간격으로 폴링한다([`integration-events-panel.tsx`](../apps/web/components/workspace/integration-events-panel.tsx)). 동일 탭에 PR 검증·VFS·통합 타임라인·SSE·게이트·DoD·ProjectState 패널이 있다([`integration-tools-panel.tsx`](../apps/web/components/workspace/integration-tools-panel.tsx)).
 
 ### Next 전용 (브라우저 → 동일 오리진)
 

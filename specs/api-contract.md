@@ -22,10 +22,29 @@
 - `POST /sessions/{id}/run-scenario/finish`
 - `POST /webhooks/github`
 - `GET /api/integration/events` (Bearer JWT)
+- `GET /api/integration/unified-timeline` (Bearer JWT; query `sessionId`, `limit`)
+- `GET /api/integration/stream` (Bearer JWT; SSE `text/event-stream`, 브라우저는 fetch+Authorization 권장)
 - `GET /api/validation/status/{prNumber}` (Bearer JWT)
 - `POST /api/vfs/snapshot` (Bearer JWT)
 - `GET /api/vfs/diff/{snapshotId}` (Bearer JWT)
 - `POST /api/vfs/approve/{snapshotId}` (Bearer JWT)
+- `GET /api/sessions/{sessionId}/role-gap` (Bearer JWT)
+- `PATCH /api/sessions/{sessionId}/session-profile` (Bearer JWT; body `{ humanRoleIds: string[] }`)
+- `GET /api/sessions/{sessionId}/workspace-gates` (Bearer JWT)
+- `GET /api/sessions/{sessionId}/project-state` (Bearer JWT)
+- `PATCH /api/sessions/{sessionId}/project-state` (Bearer JWT; optimistic `expectedVersion`)
+- `POST /api/sessions/{sessionId}/workspace-dod-verify` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/prompt-spec/convert` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/prompt-spec/approve` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/contract/validate` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/contract/approve` (Bearer JWT)
+- `GET /api/sessions/{sessionId}/pr-review` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/pr-review/submit` (Bearer JWT)
+- `PATCH /api/sessions/{sessionId}/pr-review/comments/{commentId}` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/pr-review/re-review` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/pr-review/final-approve` (Bearer JWT)
+- `GET /api/sessions/{sessionId}/retro/reports` (Bearer JWT)
+- `POST /api/sessions/{sessionId}/retro/generate` (Bearer JWT)
 
 ## Response Policy
 - success: `{ ok: boolean, service: string }` for `/health`
@@ -40,7 +59,9 @@
 - success: `{ session, steps }` for `/sessions/{id}/run-scenario/finish` (200) after gate **C** (Senior + retro to **DONE**)
 - success: `{ received: boolean }` for POST /webhooks/github (200)
 - success: `{ ok: true, data: { events } }` for GET /api/integration/events (IntegrationEvent[], newest first)
-- success: `{ ok: true, data: PrValidationStatusRecord | null }` for GET /api/validation/status/{prNumber}
+- success: `{ ok: true, data: PrValidationStatusEnvelope | null }` for GET /api/validation/status/{prNumber} — `data`가 null이면 path의 PR 번호가 숫자가 아님. 본문은 `{ prNumber, consecutiveFailures, validation: { prNumber, result, checkedAt } | null }` (`validation` null = SQLite 캐시 행 없음, streak만 의미 있을 수 있음)
+- success: `{ ok: true, data: { sessionId, integrationEvents, postgresTimeline, postgresNote, bridgeHint } }` for GET /api/integration/unified-timeline
+- success: SSE for GET /api/integration/stream (Redis 구독 시 통합 이벤트 JSON 문자열, 없으면 heartbeat)
 - success: `{ ok: true, data: { snapshotId, diffUrl } }` (201) for POST /api/vfs/snapshot; `{ ok: true, data: VfsDiff }` for GET /api/vfs/diff; `{ ok: true, data: VfsSnapshot }` for POST /api/vfs/approve
 - error: `{ code: string, message: string }`
 
@@ -48,3 +69,4 @@
 - `EMAIL_TAKEN`, `AUTH_INVALID_CREDENTIALS`, `AUTH_MISSING_TOKEN`, `AUTH_INVALID_TOKEN`, `TOKEN_REVOKED`, `USER_NOT_FOUND`
 - `VALIDATION_EMAIL`, `VALIDATION_PASSWORD`, `VALIDATION_EVENT_TYPE`
 - `IMPLEMENTATION_NOT_ACKNOWLEDGED`, `ACK_WRONG_GATE`, `FINISH_WRONG_GATE`
+- `PROMPT_SPEC_NOT_APPROVED`, `CONTRACT_INVALID`, `VERSION_CONFLICT` (워크스페이스 project-state·PR 스냅샷)
