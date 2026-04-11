@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Logger, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
-import type { PrValidationStatusRecord } from "../persistence/workspace-persistence.service";
+import type { PrValidationStatusEnvelope } from "../persistence/workspace-persistence.service";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
 interface ApiResponse<T> {
@@ -20,15 +20,15 @@ export class ValidationController {
   @Get("status/:prNumber")
   async getStatus(
     @Param("prNumber") prNumber: string,
-  ): Promise<ApiResponse<PrValidationStatusRecord | null>> {
+  ): Promise<ApiResponse<PrValidationStatusEnvelope | null>> {
     const n = parseInt(prNumber, 10);
     if (Number.isNaN(n)) {
       return { ok: true, data: null };
     }
-    const record = this.workspace.getPrValidationResult(n);
-    if (!record) {
-      this.logger.log(`PR #${prNumber} 검증 기록 없음`);
+    const env = this.workspace.getPrValidationStatusEnvelope(n);
+    if (!env.validation) {
+      this.logger.log(`PR #${prNumber} 검증 캐시 없음 (streak=${env.consecutiveFailures})`);
     }
-    return { ok: true, data: record };
+    return { ok: true, data: env };
   }
 }
