@@ -60,7 +60,7 @@
 - success: `{ received: boolean }` for POST /webhooks/github (200)
 - success: `{ ok: true, data: { events } }` for GET /api/integration/events (IntegrationEvent[], newest first)
 - success: `{ ok: true, data: PrValidationStatusEnvelope | null }` for GET /api/validation/status/{prNumber} — `data`가 null이면 path의 PR 번호가 숫자가 아님. 본문은 `{ prNumber, consecutiveFailures, validation: { prNumber, result, checkedAt } | null }` (`validation` null = SQLite 캐시 행 없음, streak만 의미 있을 수 있음)
-- success: `{ ok: true, data: { sessionId, integrationEvents, postgresTimeline, postgresNote, bridgeHint } }` for GET /api/integration/unified-timeline
+- success: `{ ok: true, data: { sessionId, integrationEvents, postgresTimeline, postgresNote, bridgeHint } }` for GET /api/integration/unified-timeline — `integrationEvents`: newest-first `IntegrationEvent[]`; `postgresTimeline`: `CollaborationEventTimelineItem[]` (`id`, `eventType`, `payload`, `sessionId`, `createdAt`), `createdAt` ascending (same order as GET `/sessions/{id}/timeline`)
 - success: SSE for GET /api/integration/stream (Redis 구독 시 통합 이벤트 JSON 문자열, 없으면 heartbeat)
 - success: `{ ok: true, data: { snapshotId, diffUrl } }` (201) for POST /api/vfs/snapshot; `{ ok: true, data: VfsDiff }` for GET /api/vfs/diff; `{ ok: true, data: VfsSnapshot }` for POST /api/vfs/approve
 - error: `{ code: string, message: string }`
