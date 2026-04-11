@@ -1,10 +1,19 @@
 import { apiFetch } from "./api-fetch";
 import type { IntegrationEventWire } from "./integration-events-api";
 
+/** Postgres `collaboration_events` 행 — OpenAPI `CollaborationEventTimelineItem` */
+export type PostgresTimelineEvent = {
+  id: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  sessionId: string | null;
+  createdAt: string;
+};
+
 export type UnifiedTimelineData = {
   sessionId: string;
   integrationEvents: IntegrationEventWire[];
-  postgresTimeline: unknown[];
+  postgresTimeline: PostgresTimelineEvent[];
   postgresNote: string | null;
   bridgeHint: string;
 };

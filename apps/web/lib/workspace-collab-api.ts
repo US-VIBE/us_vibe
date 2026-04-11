@@ -101,3 +101,40 @@ export async function fetchProjectState(
   }
   return body.data;
 }
+
+export async function patchProjectState(
+  apiBase: string,
+  sessionId: string,
+  patch: {
+    expectedVersion?: number;
+    activeSprintGoal?: string | null;
+    approvedRequirements?: string[];
+    currentApiSpecs?: string[];
+    rejectedDecisions?: string[];
+    openQuestions?: string[];
+  }
+): Promise<ProjectStatePayload> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/project-state`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch)
+    }
+  );
+  const body = (await res.json()) as {
+    ok?: boolean;
+    data?: ProjectStatePayload;
+    code?: string;
+    message?: string;
+  };
+  if (!res.ok || !body?.ok) {
+    const msg = body?.message ?? body?.code ?? `project-state PATCH ${res.status}`;
+    throw new Error(msg);
+  }
+  if (!body.data) {
+    throw new Error("project-state PATCH invalid");
+  }
+  return body.data;
+}

@@ -1293,10 +1293,10 @@ components:
               items:
                 $ref: "#/components/schemas/IntegrationEvent"
             postgresTimeline:
+              description: collaboration_events rows, createdAt ascending (same as GET /sessions/{id}/timeline)
               type: array
               items:
-                type: object
-                additionalProperties: true
+                $ref: "#/components/schemas/CollaborationEventTimelineItem"
             postgresNote:
               nullable: true
               type: string

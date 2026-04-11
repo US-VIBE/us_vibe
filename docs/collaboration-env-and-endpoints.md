@@ -86,6 +86,17 @@
 | `INTEGRATION_REDIS_CHANNEL` | (선택) Pub/Sub 채널명. 기본 `integration:events` |
 | `US_VIBE_REPO_ROOT` | (선택) 모노레포 루트 — push 웹훅에서 `code-delta-analyzer.js` 실행 시 `package.json` name `us-vibe` 탐색 실패 시 지정 |
 
+### 3.1 `INTEGRATION_WEBHOOK_SESSION_ID` 운영 정책 (단일 기준)
+
+| 모드 | 권장 값 | 효과 |
+|------|---------|------|
+| **기본(미설정)** | 코드 기본값 `github-ingest` | 웹훅 이벤트는 SQLite `integration_events`에만 쌓임. [`IntegrationTimelineBridgeService`](../apps/api/src/integration/integration-timeline-bridge.service.ts)는 **UUID v4가 아니면 Postgres `collaboration_events`로 미러하지 않음** — [`event-vocabulary-map.md`](integration-sandbox/event-vocabulary-map.md). |
+| **풀스택 데모·로컬 학습** | **워크스페이스 학습 세션 UUID** = **`POST /sessions`로 만든 시뮬 세션 UUID**와 동일 문자열 | 동일 `sessionId`로 SQLite 스트림·Postgres 타임라인·[`GET /api/integration/unified-timeline`](../apps/api/src/integration/integration-events.controller.ts)의 `postgresTimeline`이 의미 있게 채워짐. 워크스페이스 탭「연동」과 `/simulate` 타임라인을 한 줄로 맞출 때 이 모드 사용. |
+| **CI / 웹훅 단독 스모크** | `github-ingest` 유지 또는 전용 테스트용 비UUID 문자열 | Postgres 세션 없이도 웹훅·정적 검증 파이프만 검증 가능. 타임라인 병합은 기대하지 않음. |
+| **스테이징·운영** | 제품 정책에 따라 (1) 시뮬 UUID 1:1 매핑 또는 (2) 인입 소스별 고정 비UUID + 통합 뷰는 SQLite만 | (2)일 때는 `unified-timeline`의 `postgresNote`를 사용자에게 노출하는 현 동작을 전제로 한다. |
+
+**정리:** “한 화면에서 GitHub 연동 + 시뮬 게이트 타임라인”을 보려면 **반드시 UUID 모드**로 맞춘다. 그 외에는 기본 `github-ingest`로도 인테그레이션 파이프 자체는 동작한다.
+
 ---
 
 ## 4. 인증: 두 가지 HTTP 표면

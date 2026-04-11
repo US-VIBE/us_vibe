@@ -22,6 +22,7 @@
 - SSOT 저장소(ProjectState), 로그 저장소(PostgreSQL/Redis) 설계
 - OpenAPI 계약 갱신 및 백엔드 기준 계약 정확성 유지
 - 데이터 모델/마이그레이션 전략 관리
+- API 계약 변경 PR에는 GitHub 라벨 **`[contract-changed]`** 부착·검토(세부는 [`docs/checklist.md`](checklist.md) GitHub PR 섹션)
 
 ### C. 유소민 — 프론트엔드 & UX
 - Next.js 대시보드, 채팅 UI, Thinking Stream 구현
