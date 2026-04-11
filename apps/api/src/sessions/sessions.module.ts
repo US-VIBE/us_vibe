@@ -33,6 +33,7 @@ import { SessionsService } from "./sessions.service";
         new CollaborationEventsDataService(repo),
       inject: [getRepositoryToken(CollaborationEvent)]
     }
-  ]
+  ],
+  exports: [SessionsService]
 })
 export class SessionsModule {}
