@@ -35,13 +35,46 @@ export class IntegrationRedisPubSubService implements OnModuleDestroy {
     }
     const channel =
       process.env.INTEGRATION_REDIS_CHANNEL?.trim() || "integration:events";
-    try {
-      if (this.client.status === "wait") {
-        await this.client.connect();
+    const maxAttempts = Math.max(
+      1,
+      Number.parseInt(
+        process.env.INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS ?? "3",
+        10,
+      ) || 3,
+    );
+    const baseBackoffMs = Math.max(
+      0,
+      Number.parseInt(
+        process.env.INTEGRATION_REDIS_PUBLISH_BACKOFF_MS ?? "100",
+        10,
+      ) || 100,
+    );
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (this.client.status === "wait") {
+          await this.client.connect();
+        }
+        await this.client.publish(channel, JSON.stringify(event));
+        return;
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (attempt >= maxAttempts) {
+          this.logger.warn(
+            `Redis publish failed after ${maxAttempts} attempt(s): ${msg}`,
+          );
+          return;
+        }
+        const delayMs = baseBackoffMs * 2 ** (attempt - 1);
+        await this.sleepUnref(delayMs);
       }
-      await this.client.publish(channel, JSON.stringify(event));
-    } catch (e) {
-      this.logger.warn(`Redis publish skipped: ${(e as Error).message}`);
     }
+  }
+
+  private sleepUnref(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      t.unref?.();
+    });
   }
 }
