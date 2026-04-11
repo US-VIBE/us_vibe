@@ -13,6 +13,7 @@
 |------|------|
 | [`collaboration-interface.md`](collaboration-interface.md) | A/B/C와 맞출 이벤트·엔드포인트·환경변수·공유 타입 |
 | [`event-vocabulary-map.md`](event-vocabulary-map.md) | `IntegrationEventType` ↔ Postgres `collaboration_events.eventType` 매핑 |
+| [`session-id-sync.md`](session-id-sync.md) | 학습 sessionId · 시뮬 UUID · `INTEGRATION_WEBHOOK_SESSION_ID` 맞추기 |
 | [`pr-merge-checklist-for-d.md`](pr-merge-checklist-for-d.md) | develop PR 머지·게이트·라벨 실무 체크 |
 | [`handshake-b-openapi-review.md`](handshake-b-openapi-review.md) | B에게 요청할 OpenAPI·types 검토 포인트 |
 | [`handshake-a-sessionid-redis.md`](handshake-a-sessionid-redis.md) | A와 맞출 sessionId·Redis Pub/Sub 합의 |
