@@ -42,8 +42,9 @@
 | `REDIS_URL` | 선택 | 로그아웃 시 토큰 `jti` 폐기 |
 | `API_PORT` | 선택 | 기본 `4000` |
 | `DATABASE_PATH` | 선택 | **SQLite** 워크스페이스 파일. 기본 `data/usvibe.db` 근처 ([`workspace-persistence.service.ts`](../apps/api/src/persistence/workspace-persistence.service.ts)) |
-| `INTEGRATION_WEBHOOK_SESSION_ID` | 선택 | GitHub 웹훅 `sessionId` (기본 `github-ingest`) |
+| `INTEGRATION_WEBHOOK_SESSION_ID` | 선택 | GitHub 웹훅 `sessionId` — **운영 모드 표는** [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) **§3.1** |
 | `GITHUB_*` | 선택 | 웹훅·리포트 연동 |
+| `INTEGRATION_REDIS_PUBLISHER` / `INTEGRATION_REDIS_CHANNEL` | 선택 | API 서버 — Pub/Sub 발행 시 아래 표 참고 |
 
 ---
 
@@ -93,6 +94,25 @@ CORS는 API에서 `origin: true`, `credentials: true`로 설정되어 있다.
 | GET/PATCH | `/api/sessions/{id}/session-profile`, `.../workspace-gates`, `.../project-state` | Sprint1 역할·게이트·SSOT |
 | POST | `/api/sessions/{id}/workspace-dod-verify` | 계약 스크립트 + 워크스페이스 게이트 DoD 검증 |
 
+#### Redis Pub/Sub 및 SSE(`GET /api/integration/stream`) 페이로드
+
+| 구분 | 내용 |
+|------|------|
+| **Pub/Sub 채널** | `INTEGRATION_REDIS_CHANNEL` — 기본 `integration:events`. 발행은 `INTEGRATION_REDIS_PUBLISHER=1` 이고 `REDIS_URL`이 있을 때만 ([`integration-redis-pubsub.service.ts`](../apps/api/src/integration/integration-redis-pubsub.service.ts)). |
+| **메시지 본문** | **단일 JSON 문자열** 한 덩어리. 스키마는 SQLite에 append되는 것과 동일한 **`IntegrationEvent`** (`specs/data-model/types.ts`). 별도 봉투 키(`wrapper` 등) 없음. |
+| **필드** | `type`, `sessionId`, `stateVersion`, `triggeredBy`, `payload`, `timestamp`(ISO 8601). |
+| **에러·버전** | Redis 메시지에 HTTP 에러 코드를 실어 보내지 **않음**. 스트림 소비 실패는 연결/파싱 측에서 처리. |
+| **SSE `data:` 줄** | (1) Redis에서 온 경우: 위 **IntegrationEvent JSON과 동일 문자열**. (2) 하트비트: `{"type":"heartbeat","redis":true\|false,"t":"<ISO>"}` ([`integration-stream.controller.ts`](../apps/api/src/integration/integration-stream.controller.ts)). |
+| **클라이언트** | 브라우저는 `Authorization`이 필요하므로 `EventSource` 대신 **fetch + SSE 파싱** ([`integration-sse.ts`](../apps/web/lib/integration-sse.ts)). |
+
+#### 통합 타임라인 UI (제품 결정)
+
+| 결정 | 내용 |
+|------|------|
+| **표시 방식** | 탭 두 개: **SQLite**(`integrationEvents`, 최신 먼저) / **Postgres**(`postgresTimeline`, `createdAt` 오름차순, `GET /sessions/:id/timeline`과 동일). 단일 병합 리스트는 추후 옵션. |
+| **구현** | [`integration-tools-panel.tsx`](../apps/web/components/workspace/integration-tools-panel.tsx)「통합 타임라인」섹션. |
+| **OpenAPI** | `GET /api/integration/unified-timeline` 응답의 `postgresTimeline` 항목은 `CollaborationEventTimelineItem` (`specs/openapi/v1.yaml`). |
+
 #### 통합 이벤트 폴링
 
 PR·정적 검증·VFS 관련 알림을 FE에서 따라갈 때는 **Bearer**로 다음을 주기적으로 호출할 수 있다.
@@ -100,7 +120,7 @@ PR·정적 검증·VFS 관련 알림을 FE에서 따라갈 때는 **Bearer**로 
 - **요청:** `GET /api/integration/events?sessionId=<선택>&limit=<1–200, 기본 50>`
 - **헤더:** `Authorization: Bearer <usvibe_access_token>` ([`lib/api-fetch.ts`](../apps/web/lib/api-fetch.ts)가 `NEXT_PUBLIC_API_URL` 설정 시 자동 첨부)
 - **응답:** `{ ok: true, data: { events: IntegrationEvent[] } }` — 이벤트는 SQLite 기준 **최신이 먼저** 오며, 필드 정의는 `specs/data-model/types.ts`의 `IntegrationEvent` 참고.
-- **sessionId:** 생략하면 DB 전역에서 최근 `limit`건(디버깅용). 운영·시뮬 정렬에는 GitHub 웹훅과 동일한 값으로 좁힌다 — 환경 변수 `INTEGRATION_WEBHOOK_SESSION_ID`(미설정 시 서버 기본 `github-ingest`) 또는 **실제 시뮬 세션 UUID**([`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) §3).
+- **sessionId:** 생략하면 DB 전역에서 최근 `limit`건(디버깅용). 운영·시뮬 정렬에는 GitHub 웹훅과 동일한 값으로 좁힌다 — [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) **§3.1** 및 [`session-id-sync.md`](integration-sandbox/session-id-sync.md).
 - **Postgres 타임라인과의 관계:** `GET /sessions/:id/timeline`은 `collaboration_events`만 본다. 웹훅 `sessionId`를 시뮬 UUID로 맞추면 동일 이벤트가 Postgres에도 미러될 수 있다 — [`docs/integration-sandbox/event-vocabulary-map.md`](integration-sandbox/event-vocabulary-map.md).
 - **워크스페이스 UI:** 스토리 탭 **「연동 · CI/이벤트」** 에서 위 API를 약 5초 간격으로 폴링한다([`integration-events-panel.tsx`](../apps/web/components/workspace/integration-events-panel.tsx)). 동일 탭에 PR 검증·VFS·통합 타임라인·SSE·게이트·DoD·ProjectState 패널이 있다([`integration-tools-panel.tsx`](../apps/web/components/workspace/integration-tools-panel.tsx)).
 
@@ -146,10 +166,24 @@ CI에서는 `npm run build`와 함께 `npm test`를 붙이면 된다.
 - 학습 세션 `sessionId`는 클라이언트에서 생성한 UUID이며, API의 SQLite 행과 **사용자 계정 ID는 아직 강하게 묶이지 않는다**(향후 `user_id` 매핑 가능).
 - GitHub 웹훅은 JWT 없이 동작한다(서명 시크릿 권장).
 
+### 7.1 학습 sessionId · 시뮬 · 웹훅 맞추기
+
+UUID를 한 줄로 맞추는 절차는 [`docs/integration-sandbox/session-id-sync.md`](integration-sandbox/session-id-sync.md)를 본다. `INTEGRATION_WEBHOOK_SESSION_ID` 표준은 [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) §3.1.
+
+### 7.2 워크스페이스 DoD 검증 vs 시뮬 `POST /sessions/:id/verify`
+
+| 구분 | 경로 | 목적 |
+|------|------|------|
+| **워크스페이스 DoD** | `POST /api/sessions/{workspaceSessionId}/workspace-dod-verify` | SQLite 기준: Prompt-to-Spec 승인·계약 검증 통과 여부 + 루트 `scripts/validate-api-contract.js` 실행. **시뮬 게이트(B→C)를 자동으로 바꾸지 않음.** |
+| **시뮬 검증** | `POST /sessions/{id}/verify` | Postgres `SimulationSession`: gate **B**일 때 계약 파일 존재·DB 핑 후 **C로 전진** ([`SessionsDataService.completeVerification`](../../src/backend/src/sessions/sessions-data.service.ts)). |
+
+학습 시나리오에서 “게이트 C 진입”은 시뮬 API를 쓰는 경우 **verify**가 공식 경로이고, 워크스페이스 DoD는 **문서·계약·스크립트 준비 점검**용으로 병행한다. 둘을 하나의 버튼으로 합칠지는 추후 제품 결정.
+
 ---
 
 ## 8. 관련 문서
 
 - **협업 통합·엔드포인트·변수명:** [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md)
+- **세션 ID 동기화(학습·시뮬·웹훅):** [`integration-sandbox/session-id-sync.md`](integration-sandbox/session-id-sync.md)
 - 설계: `docs/ai_협업_에이전트_설계_*.plan.md`
 - 통합 샌드박스: `docs/integration-sandbox/`
