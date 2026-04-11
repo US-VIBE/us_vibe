@@ -9,11 +9,12 @@ import {
   resolveVfsDiffUrl,
   type VfsDiffPayload
 } from "@/lib/vfs-api";
-import { fetchUnifiedTimeline } from "@/lib/unified-timeline-api";
+import { fetchUnifiedTimeline, type UnifiedTimelineData } from "@/lib/unified-timeline-api";
 import { startIntegrationSseStream } from "@/lib/integration-sse";
 import {
   fetchProjectState,
   fetchWorkspaceGates,
+  patchProjectState,
   patchSessionHumanRoles,
   runWorkspaceDodVerify,
   type ProjectStatePayload,
@@ -54,6 +55,8 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
   const [uniLoading, setUniLoading] = useState(false);
   const [uniErr, setUniErr] = useState<string | null>(null);
   const [uniSummary, setUniSummary] = useState<string | null>(null);
+  const [uniData, setUniData] = useState<UnifiedTimelineData | null>(null);
+  const [uniTab, setUniTab] = useState<"sqlite" | "postgres">("sqlite");
 
   const [sseOn, setSseOn] = useState(false);
   const [sseErr, setSseErr] = useState<string | null>(null);
@@ -67,6 +70,9 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
 
   const [ps, setPs] = useState<ProjectStatePayload | null>(null);
   const [psErr, setPsErr] = useState<string | null>(null);
+  const [psGoalDraft, setPsGoalDraft] = useState("");
+  const [psSaveBusy, setPsSaveBusy] = useState(false);
+  const [psSaveMsg, setPsSaveMsg] = useState<string | null>(null);
 
   const [dodLoading, setDodLoading] = useState(false);
   const [dodResult, setDodResult] = useState<string | null>(null);
@@ -81,7 +87,10 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
   const refreshProjectState = useCallback(() => {
     setPsErr(null);
     fetchProjectState(apiBaseUrl, sid)
-      .then(setPs)
+      .then((p) => {
+        setPs(p);
+        setPsGoalDraft(p.activeSprintGoal ?? "");
+      })
       .catch((e: unknown) => setPsErr(e instanceof Error ? e.message : String(e)));
   }, [apiBaseUrl, sid]);
 
@@ -171,6 +180,7 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
     setUniErr(null);
     fetchUnifiedTimeline(apiBaseUrl, sid, 40)
       .then((d) => {
+        setUniData(d);
         setUniSummary(
           `SQLite ${d.integrationEvents.length}건 · Postgres ${d.postgresTimeline.length}건` +
             (d.postgresNote ? ` — ${d.postgresNote}` : "")
@@ -178,6 +188,23 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
       })
       .catch((e: unknown) => setUniErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setUniLoading(false));
+  };
+
+  const saveProjectStateGoal = () => {
+    if (!ps) return;
+    setPsSaveBusy(true);
+    setPsSaveMsg(null);
+    patchProjectState(apiBaseUrl, sid, {
+      expectedVersion: ps.stateVersion,
+      activeSprintGoal: psGoalDraft.trim() || null
+    })
+      .then((next) => {
+        setPs(next);
+        setPsGoalDraft(next.activeSprintGoal ?? "");
+        setPsSaveMsg(`저장됨 (stateVersion ${next.stateVersion})`);
+      })
+      .catch((e: unknown) => setPsSaveMsg(e instanceof Error ? e.message : String(e)))
+      .finally(() => setPsSaveBusy(false));
   };
 
   const saveRoles = async () => {
@@ -311,7 +338,8 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
       <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
         <h3 className="font-semibold text-slate-800">통합 타임라인 (SQLite + Postgres)</h3>
         <p className="mt-1 text-xs text-slate-500">
-          <code className="rounded bg-white px-1">GET /api/integration/unified-timeline</code>
+          <code className="rounded bg-white px-1">GET /api/integration/unified-timeline</code> · 탭으로 소스 분리 · 동기화는{" "}
+          <code className="rounded bg-white px-1">docs/integration-sandbox/session-id-sync.md</code>
         </p>
         <button
           type="button"
@@ -323,6 +351,42 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
         </button>
         {uniErr ? <p className="mt-2 text-xs text-red-600">{uniErr}</p> : null}
         {uniSummary ? <p className="mt-2 text-xs text-slate-700">{uniSummary}</p> : null}
+        {uniData ? (
+          <div className="mt-3">
+            <div className="flex gap-1 border-b border-slate-200 text-xs">
+              <button
+                type="button"
+                className={`px-2 py-1 ${uniTab === "sqlite" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
+                onClick={() => setUniTab("sqlite")}
+              >
+                SQLite ({uniData.integrationEvents.length})
+              </button>
+              <button
+                type="button"
+                className={`px-2 py-1 ${uniTab === "postgres" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
+                onClick={() => setUniTab("postgres")}
+              >
+                Postgres ({uniData.postgresTimeline.length})
+              </button>
+            </div>
+            <ul className="mt-2 max-h-48 overflow-y-auto space-y-1 text-[11px] text-slate-700">
+              {uniTab === "sqlite"
+                ? uniData.integrationEvents.map((ev, i) => (
+                    <li key={`${ev.timestamp}-${ev.type}-${i}`} className="rounded border border-slate-100 bg-white px-2 py-1">
+                      <span className="font-medium">{ev.type}</span>{" "}
+                      <span className="text-slate-400">v{ev.stateVersion}</span>
+                      <div className="text-slate-400">{ev.timestamp}</div>
+                    </li>
+                  ))
+                : uniData.postgresTimeline.map((row) => (
+                    <li key={row.id} className="rounded border border-slate-100 bg-white px-2 py-1">
+                      <span className="font-medium">{row.eventType}</span>
+                      <div className="text-slate-400">{row.createdAt}</div>
+                    </li>
+                  ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
@@ -400,15 +464,39 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
-        <h3 className="font-semibold text-slate-800">ProjectState (SSOT 읽기)</h3>
+        <h3 className="font-semibold text-slate-800">ProjectState (SSOT)</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          <code className="rounded bg-white px-1">PATCH .../project-state</code> ·{" "}
+          <code className="rounded bg-white px-1">expectedVersion</code>로 낙관적 잠금. 충돌 시 메시지 후 새로고침.
+        </p>
         <button type="button" className="mb-2 text-xs text-sky-700 underline" onClick={refreshProjectState}>
           새로고침
         </button>
         {psErr ? <p className="text-xs text-red-600">{psErr}</p> : null}
         {ps ? (
-          <pre className="max-h-48 overflow-auto rounded bg-white p-2 text-[10px] text-slate-700">
-            {JSON.stringify(ps, null, 2)}
-          </pre>
+          <>
+            <label className="mt-2 block text-xs font-medium text-slate-600">
+              activeSprintGoal
+              <textarea
+                className="mt-1 w-full rounded border border-slate-200 px-2 py-1 font-mono text-[11px]"
+                rows={2}
+                value={psGoalDraft}
+                onChange={(e) => setPsGoalDraft(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="mt-2 rounded bg-slate-800 px-3 py-1 text-xs text-white disabled:opacity-50"
+              disabled={psSaveBusy}
+              onClick={() => void saveProjectStateGoal()}
+            >
+              목표 저장 (PATCH)
+            </button>
+            {psSaveMsg ? <p className="mt-2 text-xs text-slate-600">{psSaveMsg}</p> : null}
+            <pre className="mt-3 max-h-40 overflow-auto rounded bg-white p-2 text-[10px] text-slate-700">
+              {JSON.stringify(ps, null, 2)}
+            </pre>
+          </>
         ) : null}
       </section>
     </div>
