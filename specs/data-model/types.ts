@@ -5,7 +5,8 @@ export interface User {
 }
 
 // ── D. 인테그레이션 & 샌드박스 — 공유 타입 ─────────────────────────
-// 변경 시 docs/integration-sandbox/collaboration-interface.md 2절 참조
+// 변경 시 docs/integration-sandbox/collaboration-interface.md 2절,
+// Postgres 미러 매핑은 docs/integration-sandbox/event-vocabulary-map.md 참조
 
 export type IntegrationEventType =
   | "PR_OPENED"
