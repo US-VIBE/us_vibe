@@ -11,7 +11,8 @@ const STORY_LABEL: Record<StoryTabId, string> = {
   s2: "스토리2 Prompt→Spec",
   s3: "스토리3 PR",
   s4: "스토리4 계약",
-  s5: "스토리5 회고"
+  s5: "스토리5 회고",
+  s6: "연동 CI/이벤트"
 };
 
 function trunc(s: string, max: number): string {

@@ -49,6 +49,7 @@ import type { RetroReport } from "@/lib/retro-types";
 import { clearRetroPersist, loadRetroPersist, saveRetroPersist } from "@/lib/retro-persist";
 import { fetchAgentReply } from "@/lib/chat-ai";
 import type { ChatMessage } from "@/lib/chat-types";
+import { IntegrationEventsPanel } from "@/components/workspace/integration-events-panel";
 
 export type { ChatMessage };
 
@@ -59,7 +60,8 @@ const storyTabs: { id: StoryTabId; label: string; short: string }[] = [
   { id: "s2", label: "스토리2 · Prompt→Spec", short: "명세" },
   { id: "s3", label: "스토리3 · PR 시뮬", short: "PR" },
   { id: "s4", label: "스토리4 · 계약 게이트", short: "계약" },
-  { id: "s5", label: "스토리5 · 회고", short: "회고" }
+  { id: "s5", label: "스토리5 · 회고", short: "회고" },
+  { id: "s6", label: "연동 · CI/이벤트", short: "연동" }
 ];
 
 const TABS_AFTER_SPEC_APPROVAL: StoryTabId[] = ["s3", "s4", "s5"];
@@ -1330,6 +1332,37 @@ export function WorkspaceApp({
                     </div>
                   );
                 })()}
+              </section>
+            )}
+
+            {activeStory === "s6" && (
+              <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="s6-title">
+                <h2 id="s6-title" className="text-sm font-semibold text-slate-900">
+                  연동 · 통합 이벤트 스트림
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  GitHub 웹훅·검증 이벤트는 서버 SQLite에 쌓입니다. 웹훅 <code className="rounded bg-slate-100 px-1">sessionId</code>를 이
+                  학습 세션 UUID와 맞추면 여기서 동일 키로 조회됩니다.
+                </p>
+                <div className="mt-4">
+                  {(() => {
+                    const base = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/$/, "") ?? "";
+                    if (!base) {
+                      return (
+                        <p className="text-sm text-slate-600">
+                          <code className="rounded bg-slate-100 px-1">NEXT_PUBLIC_API_URL</code>을 설정하고 다시 빌드하면 폴링이
+                          활성화됩니다.
+                        </p>
+                      );
+                    }
+                    if (!authUser) {
+                      return <p className="text-sm text-amber-800">로그인 후 Bearer 토큰으로 이벤트를 불러옵니다.</p>;
+                    }
+                    return (
+                      <IntegrationEventsPanel apiBaseUrl={base} sessionId={session.sessionId} pollMs={5000} />
+                    );
+                  })()}
+                </div>
               </section>
             )}
           </div>
