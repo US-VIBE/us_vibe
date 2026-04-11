@@ -6,6 +6,7 @@ import {
   RawBodyRequest,
   Req,
   UnauthorizedException,
+  ForbiddenException,
   Logger,
   HttpCode,
   Inject,
@@ -17,6 +18,11 @@ import type { IntegrationEvent, IntegrationEventType } from "../../../../specs/d
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 import { WebhookPrValidationService } from "./webhook-pr-validation.service";
+import {
+  isClientIpAllowed,
+  parseWebhookAllowlistRules,
+  resolveWebhookClientIp,
+} from "./webhook-client-ip.util";
 
 interface GitHubPrPayload {
   action: string;
@@ -71,6 +77,20 @@ export class WebhookController {
       throw new UnauthorizedException(
         "GITHUB_WEBHOOK_REQUIRE_SIGNATURE 가 켜져 있으면 GITHUB_WEBHOOK_SECRET 이 필요합니다.",
       );
+    }
+
+    const allowRaw =
+      process.env.WEBHOOK_ALLOWLIST?.trim() ||
+      process.env.WEBHOOK_ALLOWED_CIDRS?.trim() ||
+      "";
+    const ipRules = parseWebhookAllowlistRules(allowRaw);
+    if (ipRules.length > 0) {
+      const trustProxy = envFlagTrue(process.env.WEBHOOK_TRUST_PROXY);
+      const ip = resolveWebhookClientIp(req as Request, trustProxy);
+      if (!ip || !isClientIpAllowed(ip, ipRules)) {
+        this.logger.warn(`Webhook IP 거부: ${ip ?? "unknown"}`);
+        throw new ForbiddenException("허용되지 않은 클라이언트입니다.");
+      }
     }
 
     // HMAC-SHA256 서명 검증
@@ -156,6 +176,9 @@ export class WebhookController {
     this.logger.log(`코드 커밋 감지: ${commitSha}`);
     const codeDeltaSummary = this.codeDeltaRunner.runForPush(beforeSha, commitSha);
     await this.publishEvent("CODE_DELTA_ANALYZED", { codeDeltaSummary });
+    const sessionId =
+      process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
+    this.workspace.patchProjectStateCodeDelta(sessionId, codeDeltaSummary);
   }
 
   private async publishEvent(
