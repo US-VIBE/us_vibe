@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-04-11
+
+### D 다음 단계 계획 실행 (기능·문서)
+
+- **문서:** [d-integration-pipeline.md](d-integration-pipeline.md)·[d-integration-scenarios.md](d-integration-scenarios.md)를 SQLite 1차 스트림 + 선택적 Redis Pub/Sub 모델로 정합. [pr-merge-checklist-for-d.md](pr-merge-checklist-for-d.md), [handshake-b-openapi-review.md](handshake-b-openapi-review.md), [handshake-a-sessionid-redis.md](handshake-a-sessionid-redis.md) 추가. [specs/api-contract.md](../../specs/api-contract.md)·[docs/checklist.md](../checklist.md) 갱신.
+- **API:** push 웹훅에서 `scripts/code-delta-analyzer.js`( `CODE_DELTA_BASE_SHA` / `CODE_DELTA_HEAD_SHA` ) 실행해 `CODE_DELTA_ANALYZED` 실데이터. PR 연속 실패 5회 시 `VALIDATION_LOOP_DETECTED` 및 검증 스킵(SQLite `pr_validation_failure_streak`). `WEBHOOK_VALIDATION_MAX_MS`로 검증 상한. `INTEGRATION_REDIS_PUBLISHER` 시 Redis Pub/Sub 중복 발행([integration-redis-pubsub.service.ts](../../apps/api/src/integration/integration-redis-pubsub.service.ts)).
+- **FE:** 워크스페이스 스토리 탭 **「연동 · CI/이벤트」** 에 `GET /api/integration/events` 폴링 패널([integration-events-panel.tsx](../../apps/web/components/workspace/integration-events-panel.tsx)).
+
+**로컬 스모크(수동):** API 기동 후 `NEXT_PUBLIC_API_URL`·로그인 상태에서 워크스페이스 s6 탭; 웹훅은 `INTEGRATION_WEBHOOK_SESSION_ID`를 세션 UUID로 맞추고 PR/ push 이벤트로 `integration_events`·(선택) Redis 확인.
+
+---
+
 ## 2026-04-10 (3차)
 
 ### `docs/integration-sandbox/` 문서 패키지로 정리

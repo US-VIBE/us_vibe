@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import type { IEventPublisher } from "./event-publisher.interface";
+import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.service";
 import { IntegrationTimelineBridgeService } from "./integration-timeline-bridge.service";
 
 /**
@@ -14,7 +15,8 @@ export class EventPublisherSqlite implements IEventPublisher {
 
   constructor(
     private readonly workspace: WorkspacePersistenceService,
-    private readonly timelineBridge: IntegrationTimelineBridgeService
+    private readonly timelineBridge: IntegrationTimelineBridgeService,
+    private readonly redisPubSub: IntegrationRedisPubSubService
   ) {}
 
   async publish(event: IntegrationEvent): Promise<void> {
@@ -23,5 +25,6 @@ export class EventPublisherSqlite implements IEventPublisher {
       `[publish] ${r.type} session=${r.sessionId} v=${r.stateVersion} by=${r.triggeredBy}`
     );
     await this.timelineBridge.mirrorIfApplicable(r);
+    await this.redisPubSub.publishResolved(r);
   }
 }

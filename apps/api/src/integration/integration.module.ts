@@ -11,6 +11,8 @@ import { EventPublisherSqlite } from "./event-publisher.sqlite";
 import { EVENT_PUBLISHER } from "./event-publisher.interface";
 import { IntegrationEventsController } from "./integration-events.controller";
 import { IntegrationTimelineBridgeService } from "./integration-timeline-bridge.service";
+import { CodeDeltaRunnerService } from "./code-delta-runner.service";
+import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.service";
 
 @Module({
   imports: [AuthModule, CollaborationModule],
@@ -19,8 +21,10 @@ import { IntegrationTimelineBridgeService } from "./integration-timeline-bridge.
     ValidationService,
     VfsService,
     ReportService,
+    CodeDeltaRunnerService,
+    IntegrationRedisPubSubService,
     IntegrationTimelineBridgeService,
-    /** Redis 등으로 교체 시: { provide: EVENT_PUBLISHER, useClass: RedisEventPublisher } */
+    /** SQLite append + optional Redis Pub/Sub(INTEGRATION_REDIS_PUBLISHER) */
     { provide: EVENT_PUBLISHER, useClass: EventPublisherSqlite },
   ],
   exports: [ValidationService, VfsService, ReportService, EVENT_PUBLISHER],

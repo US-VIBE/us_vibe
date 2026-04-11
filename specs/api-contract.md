@@ -20,6 +20,12 @@
 - `POST /sessions/{id}/run-scenario`
 - `POST /sessions/{id}/implementation-ready`
 - `POST /sessions/{id}/run-scenario/finish`
+- `POST /webhooks/github`
+- `GET /api/integration/events` (Bearer JWT)
+- `GET /api/validation/status/{prNumber}` (Bearer JWT)
+- `POST /api/vfs/snapshot` (Bearer JWT)
+- `GET /api/vfs/diff/{snapshotId}` (Bearer JWT)
+- `POST /api/vfs/approve/{snapshotId}` (Bearer JWT)
 
 ## Response Policy
 - success: `{ ok: boolean, service: string }` for `/health`
@@ -32,6 +38,10 @@
 - success: simulation session object for `/sessions` (201), `/sessions/{id}` (200 GET/PATCH/verify), `/sessions/{id}/implementation-ready` (200), array of timeline events for `/sessions/{id}/timeline` (200)
 - success: `{ session, steps, pausedForImplementation?: boolean }` for `/sessions/{id}/run-scenario` (200): default intro stops at gate **B** with `pausedForImplementation: true`; body `{ "skipImplementationWait": true }` runs verify+finish in one call (demo)
 - success: `{ session, steps }` for `/sessions/{id}/run-scenario/finish` (200) after gate **C** (Senior + retro to **DONE**)
+- success: `{ received: boolean }` for POST /webhooks/github (200)
+- success: `{ ok: true, data: { events } }` for GET /api/integration/events (IntegrationEvent[], newest first)
+- success: `{ ok: true, data: PrValidationStatusRecord | null }` for GET /api/validation/status/{prNumber}
+- success: `{ ok: true, data: { snapshotId, diffUrl } }` (201) for POST /api/vfs/snapshot; `{ ok: true, data: VfsDiff }` for GET /api/vfs/diff; `{ ok: true, data: VfsSnapshot }` for POST /api/vfs/approve
 - error: `{ code: string, message: string }`
 
 ## Auth error codes (non-exhaustive)

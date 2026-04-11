@@ -35,8 +35,17 @@ function info(msg) {
 }
 
 // ── git diff 대상 결정 ────────────────────────────────────────────
-const currentSha = process.env.GITHUB_SHA || run("git rev-parse HEAD");
-const previousSha = run("git rev-parse HEAD~1", "");
+// 웹훅 push: CODE_DELTA_BASE_SHA(before)·CODE_DELTA_HEAD_SHA(after) 우선
+const currentSha =
+  process.env.CODE_DELTA_HEAD_SHA?.trim() ||
+  process.env.GITHUB_SHA ||
+  run("git rev-parse HEAD");
+let previousSha = process.env.CODE_DELTA_BASE_SHA?.trim() || "";
+const zeroBase = !previousSha || /^0+$/.test(previousSha);
+
+if (zeroBase) {
+  previousSha = run("git rev-parse HEAD~1", "");
+}
 
 if (!previousSha) {
   info("이전 커밋이 없습니다. 초기 커밋으로 판단하고 전체 파일을 분석합니다.");

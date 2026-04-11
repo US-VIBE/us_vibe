@@ -47,6 +47,7 @@ export class IntegrationTimelineBridgeService {
 
     switch (event.type) {
       case "VALIDATION_FAILED":
+      case "VALIDATION_LOOP_DETECTED":
         return {
           eventType: "contract_violation",
           payload: { ...envelope, ...payloadObj }

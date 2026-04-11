@@ -39,7 +39,7 @@ sequenceDiagram
   Note over D: ESLint + TypeScript + OpenAPI 병렬 실행
   D->>D: Result Aggregator → VALIDATION_PASSED
   D->>GH: PR 코멘트 "✅ 정적 검증 통과"
-  D->>A: Redis publish integration:events {type: VALIDATION_PASSED, prNumber, stateVersion}
+  D->>A: SQLite integration_events (+ optional Redis) {type: VALIDATION_PASSED, prNumber, stateVersion}
   A->>Senior: Senior Agent 리뷰 트리거 (Gate C 진입)
   Senior->>GH: PR 리뷰 코멘트 생성
   GH->>L: 리뷰 코멘트 알림
@@ -59,7 +59,7 @@ sequenceDiagram
 |------|------|
 | PR 상태 | merge 가능 상태 유지 |
 | PR 코멘트 | 검증 통과 요약 |
-| Redis 이벤트 | `VALIDATION_PASSED` |
+| 통합 이벤트 | `VALIDATION_PASSED` (SQLite 1차, Redis 선택) |
 | Gate 상태 | A가 Gate C(리뷰) 진입 가능으로 업데이트 |
 
 ### 담당 에이전트 / 팀원
@@ -96,7 +96,7 @@ sequenceDiagram
   D->>D: ContractDiff 목록 생성
   Note over D: 변경 경로, 메서드, 영향 필드, 소비자 목록 분석
   D->>GH: PR 코멘트 — 계약 변경 영향 범위 리포트
-  D->>A: Redis publish {type: CONTRACT_CHANGED, contractDiffs, openApiVersion}
+  D->>A: SQLite (+ optional Redis) {type: CONTRACT_CHANGED, contractDiffs, openApiVersion}
   A->>FE: FE Agent에게 영향 컴포넌트 재검토 요청
   A->>QA: QA Agent에게 영향 테스트 케이스 재생성 요청
 ```
@@ -113,7 +113,7 @@ sequenceDiagram
 | 항목 | 결과 |
 |------|------|
 | PR 코멘트 | 계약 변경 영향 범위 리포트 (변경 경로 / 영향 FE 컴포넌트 / 영향 QA 테스트) |
-| Redis 이벤트 | `CONTRACT_CHANGED` |
+| 통합 이벤트 | `CONTRACT_CHANGED` |
 | A의 후속 행동 | FE/QA 에이전트에게 재검토 요청 |
 
 ### PR 코멘트 형식 예시
@@ -164,7 +164,7 @@ sequenceDiagram
   D->>D: VFS DB에 파일 트리 스냅샷 저장
   D->>D: snapshotId 발급
   D->>A: {snapshotId, diffUrl}
-  D->>A: Redis publish {type: VFS_SNAPSHOT_CREATED, snapshotId}
+  D->>A: SQLite (+ optional Redis) {type: VFS_SNAPSHOT_CREATED, snapshotId}
   A->>C: 학습자 UI에 Diff 검토 요청 알림
   C->>D: GET /api/vfs/diff/:snapshotId (Diff UI 렌더링)
   D->>C: 파일별 변경 Diff 반환
@@ -172,7 +172,7 @@ sequenceDiagram
   C->>D: POST /api/vfs/approve/:snapshotId
   D->>D: Shadow Branch에서 실제 feature 브랜치로 변경 반영
   D->>GH: GitHub API — 브랜치 업데이트 또는 PR 생성
-  D->>A: Redis publish {type: VFS_APPROVED, snapshotId, targetBranch}
+  D->>A: SQLite (+ optional Redis) {type: VFS_APPROVED, snapshotId, targetBranch}
   A->>L: 반영 완료 알림
 ```
 
@@ -230,7 +230,7 @@ sequenceDiagram
   D->>D: Result Aggregator → VALIDATION_FAILED
   D->>GH: PR merge 블록 (GitHub Status Check 실패)
   D->>GH: PR 코멘트 — 실패 리포트 (파일:라인, 규칙, 수정 방향)
-  D->>A: Redis publish {type: VALIDATION_FAILED, validationResult}
+  D->>A: SQLite (+ optional Redis) {type: VALIDATION_FAILED, validationResult}
   A->>QA: QA Agent에게 실패 원인 분석 요청
   QA->>L: 채팅 채널 — 재현 가능한 수정 안내 (정답 코드 직제공 아님)
   L->>L: 수정 후 커밋 push
@@ -251,7 +251,7 @@ sequenceDiagram
 |------|------|
 | PR 상태 | merge 블록 (GitHub Status Check: ❌) |
 | PR 코멘트 | 구체적 실패 리포트 (파일/라인/규칙/수정 방향) |
-| Redis 이벤트 | `VALIDATION_FAILED` |
+| 통합 이벤트 | `VALIDATION_FAILED` |
 | QA Agent | 재현 가능한 수정 안내 (hints 중심, 정답 코드 직제공 금지) |
 
 ### 루프 가드 (plan.md 36항 반영)
@@ -307,5 +307,5 @@ sequenceDiagram
 | VFS 승인 없는 자동 반영 | 시스템 레벨에서 차단 (D 파이프라인 설계 원칙) |
 
 ### 이벤트 발행 채널
-- 모든 이벤트: Redis Pub/Sub `integration:events`
+- 모든 이벤트: 1차는 워크스페이스 SQLite `integration_events` + `GET /api/integration/events`; `INTEGRATION_REDIS_PUBLISHER=1`이면 동일 페이로드를 Redis 채널 `integration:events`(기본)로도 발행
 - 이벤트 스키마: [`collaboration-interface.md`](collaboration-interface.md) 2절 참조
