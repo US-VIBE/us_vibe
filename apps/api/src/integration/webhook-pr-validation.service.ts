@@ -1,4 +1,12 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
+import { Queue, Worker } from "bullmq";
+import Redis from "ioredis";
 import { ValidationService } from "./validation.service";
 import { ReportService } from "./report.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
@@ -10,16 +18,21 @@ interface PrValidationJob {
   commitSha: string;
 }
 
+const BULL_QUEUE_NAME = "integration-pr-validate";
+
 function envFlagTrue(value: string | undefined): boolean {
   const v = value?.trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 @Injectable()
-export class WebhookPrValidationService {
+export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebhookPrValidationService.name);
-  private readonly queue: PrValidationJob[] = [];
+  private readonly memoryQueue: PrValidationJob[] = [];
   private pumping = false;
+  private bullConnection: Redis | null = null;
+  private bullQueue: Queue | null = null;
+  private bullWorker: Worker | null = null;
 
   constructor(
     private readonly validationService: ValidationService,
@@ -27,6 +40,56 @@ export class WebhookPrValidationService {
     private readonly workspace: WorkspacePersistenceService,
     @Inject(EVENT_PUBLISHER) private readonly eventPublisher: IEventPublisher,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (!envFlagTrue(process.env.INTEGRATION_BULLMQ)) {
+      return;
+    }
+    const url = process.env.REDIS_URL?.trim();
+    if (!url) {
+      this.logger.warn(
+        "INTEGRATION_BULLMQ=1 이지만 REDIS_URL 없음 — 인메모리 큐만 사용합니다.",
+      );
+      return;
+    }
+    try {
+      this.bullConnection = new Redis(url, { maxRetriesPerRequest: null });
+      this.bullQueue = new Queue(BULL_QUEUE_NAME, {
+        connection: this.bullConnection,
+      });
+      this.bullWorker = new Worker(
+        BULL_QUEUE_NAME,
+        async (job) => {
+          const { prNumber, commitSha } = job.data as PrValidationJob;
+          await this.runQueuedValidation(prNumber, commitSha);
+        },
+        { connection: this.bullConnection, concurrency: 1 },
+      );
+      this.bullWorker.on("failed", (job, err) => {
+        this.logger.error(
+          `BullMQ job 실패 id=${job?.id ?? "?"}: ${(err as Error).message}`,
+        );
+      });
+      this.logger.log(`BullMQ 큐 활성화: ${BULL_QUEUE_NAME}`);
+    } catch (e) {
+      this.logger.error(`BullMQ 초기화 실패: ${(e as Error).message}`);
+      this.bullQueue = null;
+      this.bullWorker = null;
+      if (this.bullConnection) {
+        await this.bullConnection.quit().catch(() => {});
+        this.bullConnection = null;
+      }
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.bullWorker?.close();
+    await this.bullQueue?.close();
+    if (this.bullConnection) {
+      await this.bullConnection.quit().catch(() => {});
+      this.bullConnection = null;
+    }
+  }
 
   private webhookRaceMaxMs(): number {
     return Math.min(
@@ -72,7 +135,7 @@ export class WebhookPrValidationService {
     } catch (e) {
       if ((e as Error).message === "WEBHOOK_VALIDATION_TIMEOUT") {
         this.logger.warn(
-          `PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 인메모리 큐로 이관`,
+          `PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 큐로 이관`,
         );
         this.enqueue({ prNumber, commitSha });
         return;
@@ -82,18 +145,40 @@ export class WebhookPrValidationService {
   }
 
   private enqueue(job: PrValidationJob): void {
-    this.queue.push(job);
-    void this.pumpQueue();
+    if (this.bullQueue) {
+      void this.enqueueBull(job).catch((err) => {
+        this.logger.error(
+          `BullMQ add 실패, 인메모리로 폴백: ${(err as Error).message}`,
+        );
+        this.memoryQueue.push(job);
+        void this.pumpMemoryQueue();
+      });
+      return;
+    }
+    this.memoryQueue.push(job);
+    void this.pumpMemoryQueue();
   }
 
-  private async pumpQueue(): Promise<void> {
+  private async enqueueBull(job: PrValidationJob): Promise<void> {
+    if (!this.bullQueue) {
+      return;
+    }
+    await this.bullQueue.add("pr-validate", job, {
+      jobId: `pr-validate:${job.prNumber}:${job.commitSha}`,
+      removeOnComplete: { age: 3600 },
+      attempts: 3,
+      backoff: { type: "exponential", delay: 2000 },
+    });
+  }
+
+  private async pumpMemoryQueue(): Promise<void> {
     if (this.pumping) {
       return;
     }
     this.pumping = true;
     try {
-      while (this.queue.length > 0) {
-        const job = this.queue.shift()!;
+      while (this.memoryQueue.length > 0) {
+        const job = this.memoryQueue.shift()!;
         await this.runQueuedValidation(job.prNumber, job.commitSha);
       }
     } finally {
