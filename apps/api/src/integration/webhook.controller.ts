@@ -12,12 +12,11 @@ import {
 } from "@nestjs/common";
 import { createHmac, timingSafeEqual } from "crypto";
 import type { Request } from "express";
-import { ValidationService } from "./validation.service";
-import { ReportService } from "./report.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent, IntegrationEventType } from "../../../../specs/data-model/types";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import { CodeDeltaRunnerService } from "./code-delta-runner.service";
+import { WebhookPrValidationService } from "./webhook-pr-validation.service";
 
 interface GitHubPrPayload {
   action: string;
@@ -35,20 +34,25 @@ interface GitHubPushPayload {
   before: string;
 }
 
+function envFlagTrue(value: string | undefined): boolean {
+  const v = value?.trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
 @Controller("webhooks")
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
   private readonly webhookSecret: string;
 
   constructor(
-    private readonly validationService: ValidationService,
-    private readonly reportService: ReportService,
     private readonly workspace: WorkspacePersistenceService,
     private readonly codeDeltaRunner: CodeDeltaRunnerService,
+    private readonly prValidation: WebhookPrValidationService,
     @Inject(EVENT_PUBLISHER) private readonly eventPublisher: IEventPublisher,
   ) {
     this.webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
-    if (!this.webhookSecret) {
+    const requireSig = envFlagTrue(process.env.GITHUB_WEBHOOK_REQUIRE_SIGNATURE);
+    if (!this.webhookSecret && !requireSig) {
       this.logger.warn(
         "GITHUB_WEBHOOK_SECRET 환경변수가 설정되지 않았습니다. Webhook 서명 검증이 비활성화됩니다.",
       );
@@ -63,6 +67,12 @@ export class WebhookController {
     @Headers("x-github-event") eventName: string,
     @Body() payload: GitHubPrPayload | GitHubPushPayload,
   ): Promise<{ received: boolean }> {
+    if (envFlagTrue(process.env.GITHUB_WEBHOOK_REQUIRE_SIGNATURE) && !this.webhookSecret) {
+      throw new UnauthorizedException(
+        "GITHUB_WEBHOOK_REQUIRE_SIGNATURE 가 켜져 있으면 GITHUB_WEBHOOK_SECRET 이 필요합니다.",
+      );
+    }
+
     // HMAC-SHA256 서명 검증
     if (this.webhookSecret) {
       const rawBody = req.rawBody;
@@ -137,58 +147,7 @@ export class WebhookController {
     this.logger.log(`정적 검증 시작: PR #${prNumber} (${eventType})`);
     await this.publishEvent(eventType, { prNumber, branch, author });
 
-    const streak = this.workspace.getValidationFailureStreak(prNumber);
-    if (streak >= 5) {
-      this.logger.warn(`PR #${prNumber} 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`);
-      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
-        prNumber,
-        consecutiveFailures: streak
-      });
-      return;
-    }
-
-    const maxMs = Math.min(
-      120_000,
-      Math.max(5_000, Number(process.env.WEBHOOK_VALIDATION_MAX_MS ?? 28_000))
-    );
-    let validationResult: Awaited<ReturnType<ValidationService["runAll"]>>;
-    try {
-      validationResult = await Promise.race([
-        this.validationService.runAll(prNumber, commitSha),
-        new Promise<never>((_, rej) => {
-          const t = setTimeout(() => rej(new Error("WEBHOOK_VALIDATION_TIMEOUT")), maxMs);
-          t.unref?.();
-        })
-      ]);
-    } catch (e) {
-      if ((e as Error).message === "WEBHOOK_VALIDATION_TIMEOUT") {
-        this.logger.warn(`PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 스킵`);
-        return;
-      }
-      throw e;
-    }
-
-    this.workspace.savePrValidationResult(prNumber, validationResult);
-    const outcome = this.workspace.recordValidationOutcome(prNumber, validationResult.passed);
-    if (outcome.loopJustDetected) {
-      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
-        prNumber,
-        consecutiveFailures: outcome.streak
-      });
-    }
-
-    if (validationResult.passed) {
-      await this.publishEvent("VALIDATION_PASSED", { validationResult });
-    } else {
-      await this.publishEvent("VALIDATION_FAILED", { validationResult });
-
-      const repoOwner = process.env.GITHUB_REPO_OWNER ?? "";
-      const repoName = process.env.GITHUB_REPO_NAME ?? "";
-      if (repoOwner && repoName) {
-        const body = this.reportService.buildValidationFailReport(validationResult);
-        await this.reportService.postPrComment(repoOwner, repoName, prNumber, body);
-      }
-    }
+    await this.prValidation.scheduleOrRunValidation(prNumber, commitSha);
   }
 
   private async handlePush(payload: GitHubPushPayload): Promise<void> {
