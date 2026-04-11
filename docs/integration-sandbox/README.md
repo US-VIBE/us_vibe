@@ -1,13 +1,18 @@
 # Integration & Sandbox (역할 D) 문서
 
-이 디렉터리는 팀 역할 **D · 인테그레이션 & 샌드박스** 담당 문서만 모아 둡니다.  
-전체 팀 규칙은 [`../team-role-charter.md`](../team-role-charter.md)를 참고하세요.
+이 디렉터리는 팀 역할 **D · 인테그레이션 & 샌드박스** 담당 문서만 모아 둔다.
+
+**팀 공통 진입점(환경 변수·엔드포인트 표):** [`docs/collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md)  
+**시뮬 세션·인증·Postgres 상세:** [`docs/api/collaboration-endpoints-and-env.md`](../api/collaboration-endpoints-and-env.md)
+
+전체 팀 규칙은 [`../team-role-charter.md`](../team-role-charter.md)를 참고한다.
 
 ## 문서 목록
 
 | 문서 | 설명 |
 |------|------|
 | [`collaboration-interface.md`](collaboration-interface.md) | A/B/C와 맞출 이벤트·엔드포인트·환경변수·공유 타입 |
+| [`event-vocabulary-map.md`](event-vocabulary-map.md) | `IntegrationEventType` ↔ Postgres `collaboration_events.eventType` 매핑 |
 | [`d-integration-pipeline.md`](d-integration-pipeline.md) | Webhook → 검증 → VFS → 이벤트 파이프라인 설계 |
 | [`d-integration-scenarios.md`](d-integration-scenarios.md) | PR 검증, 계약 변경, VFS, 실패 처리 시나리오 |
 | [`d-integration-dev-notes.md`](d-integration-dev-notes.md) | 날짜별 구현·결정 로그 (개발자 노트) |

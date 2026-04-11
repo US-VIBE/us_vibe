@@ -37,6 +37,8 @@ These `eventType` values are reserved for cross-team alignment (extend only with
 
 Unknown `eventType` strings are still accepted; the table is intentionally permissive so experiments are not blocked, but analytics should prefer the vocabulary above.
 
+D 통합 스트림(`IntegrationEventType`)에서 이 테이블로 미러링할 때의 매핑은 [`docs/integration-sandbox/event-vocabulary-map.md`](../integration-sandbox/event-vocabulary-map.md)를 본다.
+
 ## Failure policy
 
 The API returns **400** with `{ code, message }` when `eventType` is empty. Database failures bubble as **500**; clients that must not lose events should retry with an idempotency key in `payload` (future enhancement).

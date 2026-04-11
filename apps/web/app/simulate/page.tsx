@@ -306,7 +306,7 @@ export default function SimulatePage() {
         }
       }
     }
-  }, [timeline, notifyDesktop, notifyPermission]);
+  }, [timeline, notifyDesktop, notifyPermission, sessionId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });

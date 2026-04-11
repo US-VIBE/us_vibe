@@ -16,6 +16,7 @@ import { ValidationService } from "./validation.service";
 import { ReportService } from "./report.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent, IntegrationEventType } from "../../../../specs/data-model/types";
+import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
 interface GitHubPrPayload {
   action: string;
@@ -39,6 +40,7 @@ export class WebhookController {
   constructor(
     private readonly validationService: ValidationService,
     private readonly reportService: ReportService,
+    private readonly workspace: WorkspacePersistenceService,
     @Inject(EVENT_PUBLISHER) private readonly eventPublisher: IEventPublisher,
   ) {
     this.webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
@@ -128,6 +130,7 @@ export class WebhookController {
     await this.publishEvent(eventType, { prNumber, branch, author });
 
     const validationResult = await this.validationService.runAll(prNumber, commitSha);
+    this.workspace.savePrValidationResult(prNumber, validationResult);
 
     if (validationResult.passed) {
       await this.publishEvent("VALIDATION_PASSED", { validationResult });
