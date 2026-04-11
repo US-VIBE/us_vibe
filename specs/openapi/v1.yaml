@@ -439,6 +439,173 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ContractError"
+  /webhooks/github:
+    post:
+      summary: GitHub webhook (HMAC-SHA256 when GITHUB_WEBHOOK_SECRET is set)
+      operationId: postWebhooksGithub
+      security: []
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-GitHub-Event
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookGithubAck"
+        "401":
+          description: Signature or raw body missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/integration/events:
+    get:
+      summary: Integration event stream (SQLite workspace; polling)
+      operationId: getApiIntegrationEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Newest-first list inside data.events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationEventsListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/validation/status/{prNumber}:
+    get:
+      summary: Latest static validation result for a PR (SQLite cache)
+      operationId: getApiValidationStatusByPr
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: prNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: "ok true; data null if no cache row"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationStatusResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/vfs/snapshot:
+    post:
+      summary: Create VFS snapshot and emit integration event
+      operationId: postApiVfsSnapshot
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VfsSnapshotRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VfsSnapshotCreateResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/vfs/diff/{snapshotId}:
+    get:
+      summary: VFS diff for snapshot
+      operationId: getApiVfsDiff
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: snapshotId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Diff payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VfsDiffEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/vfs/approve/{snapshotId}:
+    post:
+      summary: Approve VFS snapshot
+      operationId: postApiVfsApprove
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: snapshotId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VfsApproveEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
 components:
   securitySchemes:
     bearerAuth:
@@ -636,3 +803,118 @@ components:
         createdAt:
           type: string
           format: date-time
+    WebhookGithubAck:
+      type: object
+      required: [received]
+      properties:
+        received:
+          type: boolean
+    IntegrationEvent:
+      type: object
+      required: [type, sessionId, stateVersion, triggeredBy, payload, timestamp]
+      properties:
+        type:
+          type: string
+        sessionId:
+          type: string
+        stateVersion:
+          type: integer
+        triggeredBy:
+          type: string
+          enum: [github, user, agent]
+        payload:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+    IntegrationEventsListResponse:
+      type: object
+      required: [ok, data]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          required: [events]
+          properties:
+            events:
+              type: array
+              items:
+                $ref: "#/components/schemas/IntegrationEvent"
+    PrValidationStatusRecord:
+      type: object
+      required: [prNumber, result, checkedAt]
+      properties:
+        prNumber:
+          type: integer
+        result:
+          type: object
+          additionalProperties: true
+        checkedAt:
+          type: string
+          format: date-time
+    ValidationStatusResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        data:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/PrValidationStatusRecord"
+    VfsSnapshotRequest:
+      type: object
+      required: [files, agentType, sessionId]
+      properties:
+        agentType:
+          type: string
+        sessionId:
+          type: string
+        files:
+          type: array
+          items:
+            type: object
+            required: [filePath, content]
+            properties:
+              filePath:
+                type: string
+              content:
+                type: string
+    VfsSnapshotCreateResponse:
+      type: object
+      required: [ok, data]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          required: [snapshotId, diffUrl]
+          properties:
+            snapshotId:
+              type: string
+            diffUrl:
+              type: string
+    VfsDiffEnvelope:
+      type: object
+      required: [ok, data]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          additionalProperties: true
+    VfsApproveEnvelope:
+      type: object
+      required: [ok, data]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          additionalProperties: true
