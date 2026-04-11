@@ -1,5 +1,12 @@
 # US Vibe MVP Plan
 
+## 제품 비전 vs 이 문서의 위치
+
+**장기 최종 목표**는 [AI 협업 에이전트 설계](ai_협업_에이전트_설계_10198352.plan.md)에 적힌 제품·AI 협업 **비전 전체**이다. 이 `plan.md`의 MVP·아래 Out of Scope는 그 비전에 대한 **단계적 마일스톤**이며, “최종 = MVP 완주”와 동일하지 않다.
+
+- 비전 대비 백로그·역할 태그: [`vision-product-backlog.md`](vision-product-backlog.md)
+- 구현과 병행하는 설계 갱신 절차: [`design-living-revisions.md`](design-living-revisions.md)
+
 ## Product Goal
 - 백엔드 1인 학습자가 PM/FE/Senior/QA 역할과 실제 협업 루프를 경험하도록 지원한다.
 - 자동 코드 생성보다 역할 분담, 리뷰, 재작업, 의사결정 훈련을 우선한다.
