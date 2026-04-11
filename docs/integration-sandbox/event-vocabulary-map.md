@@ -3,10 +3,12 @@
 [`specs/data-model/types.ts`](../../specs/data-model/types.ts)의 `IntegrationEventType`(D·SQLite `integration_events`)과  
 [`docs/backend/agent-event-log.md`](../backend/agent-event-log.md)의 Postgres `collaboration_events.eventType` 권장 값을 맞춘다.
 
+**웹훅 `sessionId` 운영 규칙(기본값·데모·CI):** [`collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3.1.
+
 ## 미러링 조건
 
 - [`IntegrationTimelineBridgeService`](../../apps/api/src/integration/integration-timeline-bridge.service.ts)는 **`IntegrationEvent.sessionId`가 RFC 4122 UUID v4 형식**일 때만 Postgres에 append한다.
-- 운영에서 타임라인을 합치려면 `INTEGRATION_WEBHOOK_SESSION_ID`를 **해당 시뮬 세션 UUID**로 설정한다 ([`docs/collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3).
+- 운영에서 타임라인을 합치려면 `INTEGRATION_WEBHOOK_SESSION_ID`를 **해당 시뮬 세션 UUID**로 설정한다 ([`docs/collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3.1). 절차 예시는 [`session-id-sync.md`](session-id-sync.md).
 - `github-ingest` 등 비 UUID이면 SQLite 스트림과 `GET /api/integration/events`만 갱신되고, `GET /sessions/:id/timeline`에는 나타나지 않는다.
 
 ## 매핑 표
