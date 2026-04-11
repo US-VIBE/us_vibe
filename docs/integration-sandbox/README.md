@@ -20,6 +20,7 @@
 | [`pr-merge-checklist-for-d.md`](pr-merge-checklist-for-d.md) | develop PR 머지·게이트·라벨 실무 체크 |
 | [`handshake-b-openapi-review.md`](handshake-b-openapi-review.md) | B에게 요청할 OpenAPI·types 검토 포인트 |
 | [`handshake-a-sessionid-redis.md`](handshake-a-sessionid-redis.md) | A와 맞출 sessionId·Redis Pub/Sub 합의 |
+| [`d-owner-workflow-fe-be-handoff.md`](d-owner-workflow-fe-be-handoff.md) | **D 주도 구현 시 문서 동기·FE/BE 전달 템플릿** |
 | [`d-integration-pipeline.md`](d-integration-pipeline.md) | Webhook → 검증 → VFS → 이벤트 파이프라인 설계 |
 | [`d-integration-scenarios.md`](d-integration-scenarios.md) | PR 검증, 계약 변경, VFS, 실패 처리 시나리오 |
 | [`d-integration-dev-notes.md`](d-integration-dev-notes.md) | 날짜별 구현·결정 로그 (개발자 노트) |

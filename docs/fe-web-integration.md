@@ -45,6 +45,7 @@
 | `INTEGRATION_WEBHOOK_SESSION_ID` | 선택 | GitHub 웹훅 `sessionId` — **운영 모드 표는** [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) **§3.1** |
 | `GITHUB_*` | 선택 | 웹훅·리포트 연동 |
 | `INTEGRATION_REDIS_PUBLISHER` / `INTEGRATION_REDIS_CHANNEL` | 선택 | API 서버 — Pub/Sub 발행 시 아래 표 참고 |
+| `WEBHOOK_VALIDATION_ASYNC` / `GITHUB_WEBHOOK_REQUIRE_SIGNATURE` / Redis publish 재시도 변수 | 선택 | GitHub → `POST /webhooks/github` 동작. **FE는 이 엔드포인트를 직접 부르지 않지만**, 통합 타임라인·SSE는 이벤트 도착 시점이 달라질 수 있음 — [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) §3 `apps/api` 표 |
 
 ---
 

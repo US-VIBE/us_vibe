@@ -13,7 +13,7 @@
 
 1. **제품·AI 비전** — [ai_협업_에이전트_설계_10198352.plan.md](ai_협업_에이전트_설계_10198352.plan.md) 해당 절.
 2. **연동·FE** — [fe-web-integration.md](fe-web-integration.md), [session-id-sync.md](integration-sandbox/session-id-sync.md).
-3. **인테그레이션** — [d-integration-pipeline.md](integration-sandbox/d-integration-pipeline.md), [event-vocabulary-map.md](integration-sandbox/event-vocabulary-map.md).
+3. **인테그레이션** — [d-integration-pipeline.md](integration-sandbox/d-integration-pipeline.md), [event-vocabulary-map.md](integration-sandbox/event-vocabulary-map.md). D 담당 변경 시 [d-owner-workflow-fe-be-handoff.md](integration-sandbox/d-owner-workflow-fe-be-handoff.md) 체크리스트를 따른다.
 4. **계약** — `specs/openapi/v1.yaml`, [api-contract.md](../specs/api-contract.md) (변경 시 [checklist.md](checklist.md)·`[contract-changed]`).
 5. **백로그 스냅샷** — [vision-product-backlog.md](vision-product-backlog.md)에서 해당 ID 행 갱신 또는 새 ID 추가.
 

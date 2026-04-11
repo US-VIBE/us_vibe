@@ -4,7 +4,7 @@
 
 **최종 목표**는 좁은 MVP 완주가 아니라 [AI 협업 에이전트 설계](ai_협업_에이전트_설계_10198352.plan.md)에 기술된 **제품·AI 협업 비전 전체**이다. [plan.md](plan.md)의 MVP·V2는 **단계 마일스톤**으로만 본다.
 
-워크 방식: [살아 있는 설계 역반영](design-living-revisions.md).
+워크 방식: [살아 있는 설계 역반영](design-living-revisions.md). 역할 D 파이프라인 변경 시: [D 주도 구현·FE/BE 맞춤](integration-sandbox/d-owner-workflow-fe-be-handoff.md).
 
 ---
 
@@ -69,7 +69,7 @@
 | ID | 항목 | 담당 |
 |----|------|------|
 | S-1 | 학습 `sessionId`와 계정·테넌시 강결합 | B |
-| S-2 | 웹훅 서명·남용 방지·운영 하드닝 | D, B |
+| S-2 | 웹훅 서명·남용 방지·운영 하드닝 (`GITHUB_WEBHOOK_REQUIRE_SIGNATURE`, 2026-04-10 코드·문서 반영) | D, B |
 
 근거: [fe-web-integration.md](fe-web-integration.md) §7.
 
@@ -79,8 +79,8 @@
 
 | ID | 항목 | 담당 |
 |----|------|------|
-| P-1 | Redis Pub/Sub 실패 재시도·큐(예: BullMQ) | D |
-| P-2 | 웹훅 정적 검증 비동기 큐·타임아웃 정책 | D |
+| P-1 | Redis Pub/Sub 실패 재시도·큐(예: BullMQ) — MVP: 동일 프로세스 지수 백오프 재시도(2026-04-10) | D |
+| P-2 | 웹훅 정적 검증 비동기 큐·타임아웃 정책 (`WEBHOOK_VALIDATION_ASYNC`·타임아웃 시 인메모리 큐, 2026-04-10) | D |
 
 근거: [d-integration-pipeline.md](integration-sandbox/d-integration-pipeline.md).
 

@@ -3,6 +3,8 @@
 > 담당: D (한승준)
 > 관련 문서: [`collaboration-interface.md`](collaboration-interface.md), [`d-integration-scenarios.md`](d-integration-scenarios.md)
 
+**구현·env 변경 시:** [d-owner-workflow-fe-be-handoff.md](d-owner-workflow-fe-be-handoff.md)에 따라 `collaboration-env-and-endpoints.md`·`apps/api/.env.example`·본 문서를 같은 PR에서 갱신하고, FE/BE에는 해당 문서 섹션으로 안내한다.
+
 ---
 
 ## 1. 전체 파이프라인 아키텍처
@@ -226,9 +228,10 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | 실패 케이스 | 처리 방식 |
 |-------------|-----------|
 | Webhook 서명 불일치 | 401 반환, 로그 기록, 알림 없음 |
+| `GITHUB_WEBHOOK_REQUIRE_SIGNATURE=1` 인데 시크릿 비어 있음 | 401(또는 설정 오류) — 운영에서 서명 없이 열리지 않음 |
 | 정적 검증 실패 | PR merge 블록 + PR 코멘트 + `VALIDATION_FAILED` 이벤트 발행 |
 | GitHub API 호출 실패 | 최대 3회 재시도 (지수 백오프), 실패 시 에러 로그만 기록 |
-| Redis Pub/Sub 발행 실패 | 로그 경고 후 스킵 (BullMQ 재시도는 **V2**) |
+| Redis Pub/Sub 발행 실패 | **P-1:** 동일 프로세스 내 지수 백오프 재시도(`INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS`, 기본 3) 후 실패 시 로그. (BullMQ 등 외부 큐는 V2) |
 | VFS 스냅샷 저장 실패 | `500` 반환 + 에러 로그, AI 에이전트에게 재시도 안내 |
 
 ---
@@ -237,7 +240,8 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 
 - 동일 PR에 대해 검증 재시도 최대 **5회** (5회 초과 시 `VALIDATION_LOOP_DETECTED` 이벤트 발행 후 중단)
 - VFS 승인 없이 자동으로 실제 브랜치에 쓰는 동작 **금지**
-- Webhook 정적 검증: 환경변수 `WEBHOOK_VALIDATION_MAX_MS`(기본 28000ms) 초과 시 검증 중단·로그만 남김 (**비동기 큐 이관은 V2**)
+- Webhook 정적 검증: `WEBHOOK_VALIDATION_MAX_MS`(기본 28000ms) 상한으로 동기 레이스.
+- **P-2 (인메모리 큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 **Nest 프로세스 내 순차 큐**에서 실행한다. 동기 모드에서 **타임아웃**이 나면 같은 큐로 넘겨 재시도한다(중복 실행 가능성은 문서화된 제한).
 
 ---
 
