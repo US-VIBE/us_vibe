@@ -1,31 +1,68 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards
+} from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import { buildRoleGapPayload } from "./role-gap.util";
 
 /**
- * 세션 API 스텁 — FE 계약 (role-gap, prompt-spec)
+ * 워크스페이스 세션 — role-gap, Prompt-to-Spec, 게이트 조회
  */
 @Controller("api/sessions")
 @UseGuards(JwtAuthGuard)
 export class SessionController {
+  constructor(private readonly workspace: WorkspacePersistenceService) {}
+
   @Get(":sessionId/role-gap")
   roleGap(@Param("sessionId") sessionId: string) {
+    const profile = this.workspace.getSessionProfile(sessionId);
+    return {
+      ok: true,
+      data: buildRoleGapPayload(sessionId, profile)
+    };
+  }
+
+  @Patch(":sessionId/session-profile")
+  patchSessionProfile(
+    @Param("sessionId") sessionId: string,
+    @Body() body: { humanRoleIds?: string[] }
+  ) {
+    const ids = Array.isArray(body?.humanRoleIds)
+      ? body.humanRoleIds.map((x) => String(x).toLowerCase().trim()).filter(Boolean)
+      : [];
+    if (ids.length === 0) {
+      return {
+        ok: false,
+        code: "BAD_REQUEST",
+        message: "humanRoleIds 배열이 필요합니다."
+      };
+    }
+    const cur = this.workspace.getSessionProfile(sessionId);
+    cur.humanRoleIds = ids;
+    this.workspace.saveSessionProfile(sessionId, cur);
+    return { ok: true, data: buildRoleGapPayload(sessionId, cur) };
+  }
+
+  @Get(":sessionId/workspace-gates")
+  workspaceGates(@Param("sessionId") sessionId: string) {
+    const contract = this.workspace.getContractState(sessionId);
+    const prof = this.workspace.getSessionProfile(sessionId);
+    const pr = this.workspace.getPrSnapshot(sessionId);
     return {
       ok: true,
       data: {
-        sessionId,
-        stateVersion: 1,
-        humanRoleIds: ["be"],
-        humanRoleLabels: ["Backend Developer (학습자)"],
-        injectedAgents: [
-          { agentId: "agent_pm", role: "PM", displayName: "PM 에이전트" },
-          { agentId: "agent_fe", role: "FE", displayName: "FE 에이전트" },
-          { agentId: "agent_qa", role: "QA", displayName: "QA 에이전트" },
-          { agentId: "agent_senior", role: "Senior", displayName: "Senior 에이전트" },
-          { agentId: "agent_supervisor", role: "Supervisor", displayName: "Supervisor" },
-          { agentId: "agent_coach", role: "Coach", displayName: "Coach" }
-        ],
-        summary:
-          "[API 스텁] 백엔드 단독 팀: PM·FE·QA·Senior·Supervisor·Coach 에이전트가 결손을 보강해 채팅에 참여합니다."
+        promptSpecApproved: this.workspace.isPromptSpecApproved(sessionId),
+        promptSpecApprovedVersion: prof.promptSpecApprovedVersion,
+        contractValidatedPass: contract.lastValidation?.passed ?? false,
+        contractApproved: contract.contractApproved,
+        prPhase: pr.phase,
+        prRevisionRound: pr.revisionRound
       }
     };
   }
@@ -42,7 +79,7 @@ export class SessionController {
       data: {
         specVersion: 1,
         template: {
-          goal: "[API 스텁] 학습자 요청을 수용 기준으로 구체화한다.",
+          goal: "학습자 요청을 수용 기준으로 구체화한다.",
           scope: promptText.slice(0, 400) + (promptText.length > 400 ? "…" : ""),
           constraints: "공통 에러 포맷 유지, 계약 게이트와 충돌 시 재검토.",
           acceptanceCriteria: [
@@ -52,24 +89,28 @@ export class SessionController {
           ],
           nonGoals: ["프론트엔드 화면 구현", "성능 최적화 범위 확대"]
         },
-        rawMarkdown: `# 요구사항 초안 (API 스텁)\n\n세션: ${sessionId}\n\n${promptText || "(빈 입력)"}`
+        rawMarkdown: `# 요구사항 초안\n\n세션: ${sessionId}\n\n${promptText || "(빈 입력)"}`
       }
     };
   }
 
-  /** POST body: { specVersion: number } */
+  /** POST body: { specVersion: number } — 승인 시 SQLite 프로필에 기록 (계약 게이트 선행 조건) */
   @Post(":sessionId/prompt-spec/approve")
   approveSpec(
     @Param("sessionId") sessionId: string,
     @Body() body: { specVersion?: number }
   ) {
     const specVersion = typeof body?.specVersion === "number" ? body.specVersion : 1;
+    const prof = this.workspace.getSessionProfile(sessionId);
+    prof.promptSpecApprovedVersion = specVersion;
+    prof.promptSpecApprovedAt = new Date().toISOString();
+    this.workspace.saveSessionProfile(sessionId, prof);
     return {
       ok: true,
       data: {
         status: "approved" as const,
         specVersion,
-        approvedAt: new Date().toISOString()
+        approvedAt: prof.promptSpecApprovedAt
       }
     };
   }

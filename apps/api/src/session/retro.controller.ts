@@ -7,6 +7,7 @@ import {
   type RetroReport,
   WorkspacePersistenceService
 } from "../persistence/workspace-persistence.service";
+import { computeRetroKpisFromEvents } from "./retro-kpi.util";
 
 @Controller("api/sessions")
 @UseGuards(JwtAuthGuard)
@@ -30,18 +31,13 @@ export class RetroController {
     @Body() _body: Record<string, unknown>
   ) {
     const list = [...this.workspace.getRetroReports(sessionId)];
-    const n = sessionId.replace(/-/g, "").slice(0, 8);
-    const seed = parseInt(n, 16) % 97 || 1;
+    const events = this.workspace.listIntegrationEvents(sessionId, 400);
+    const kpis = computeRetroKpisFromEvents(events);
     const report: RetroReport = {
       id: randomUUID(),
       sessionId,
       createdAt: new Date().toISOString(),
-      kpis: {
-        roleBalanceScore: 60 + (seed % 35),
-        reworkRatePercent: 10 + (seed % 25),
-        reviewReflectionPercent: 70 + (seed % 28),
-        communicationScore: 55 + (seed % 40)
-      },
+      kpis,
       nextActions: [
         "[API] 다음 스프린트: 계약 diff 알림을 킥오프 직후 공유",
         "[API] PR 코멘트에 우선순위 라벨 도입",

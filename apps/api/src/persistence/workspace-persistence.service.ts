@@ -45,11 +45,36 @@ export interface RetroReport {
   nextActions: [string, string, string];
 }
 
+/** SQLite `session_profile` — Sprint1 역할·Prompt-to-Spec 게이트 */
+export interface WorkspaceSessionProfile {
+  humanRoleIds: string[];
+  promptSpecApprovedVersion: number | null;
+  promptSpecApprovedAt: string | null;
+}
+
+/** 설계 §33 SSOT 요약 — 워크스페이스 영속 */
+export interface ProjectStateRecord {
+  stateVersion: number;
+  approvedRequirements: string[];
+  currentApiSpecs: string[];
+  rejectedDecisions: string[];
+  openQuestions: string[];
+  activeSprintGoal: string | null;
+}
+
 /** GitHub 웹훅 정적 검증 결과 — SQLite `pr_validation_cache` SSOT */
-export interface PrValidationStatusRecord {
+export interface PrValidationCacheRow {
   prNumber: number;
   result: ValidationResult;
   checkedAt: string;
+}
+
+/** GET /api/validation/status 응답 본문 — 캐시 없어도 streak 노출 */
+export interface PrValidationStatusEnvelope {
+  prNumber: number;
+  consecutiveFailures: number;
+  /** SQLite 캐시가 있을 때만 */
+  validation: PrValidationCacheRow | null;
 }
 
 function idlePr(sessionId: string): PrSnap {
@@ -66,6 +91,25 @@ function idlePr(sessionId: string): PrSnap {
 
 function defaultContract(): ContractState {
   return { lastValidation: null, contractApproved: false };
+}
+
+function defaultSessionProfile(): WorkspaceSessionProfile {
+  return {
+    humanRoleIds: ["be"],
+    promptSpecApprovedVersion: null,
+    promptSpecApprovedAt: null
+  };
+}
+
+function defaultProjectState(): ProjectStateRecord {
+  return {
+    stateVersion: 1,
+    approvedRequirements: [],
+    currentApiSpecs: ["specs/openapi/v1.yaml"],
+    rejectedDecisions: [],
+    openQuestions: [],
+    activeSprintGoal: null
+  };
 }
 
 @Injectable()
@@ -109,7 +153,17 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         updated_at TEXT NOT NULL
       );
     `);
+    this.ensureColumn("workspace_session", "session_profile", "TEXT");
+    this.ensureColumn("workspace_session", "project_state", "TEXT");
     this.logger.log(`SQLite workspace state: ${dbPath}`);
+  }
+
+  private ensureColumn(table: string, column: string, sqlType: string): void {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (rows.some((r) => r.name === column)) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sqlType}`);
   }
 
   onModuleDestroy(): void {
@@ -124,33 +178,55 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     pr: PrSnap;
     contract: ContractState;
     retro: RetroReport[];
+    sessionProfile: WorkspaceSessionProfile;
+    projectState: ProjectStateRecord;
   } {
     const row = this.db
       .prepare(
-        "SELECT pr_snapshot, contract_state, retro_reports FROM workspace_session WHERE session_id = ?"
+        "SELECT pr_snapshot, contract_state, retro_reports, session_profile, project_state FROM workspace_session WHERE session_id = ?"
       )
       .get(sessionId) as
-      | { pr_snapshot: string | null; contract_state: string | null; retro_reports: string | null }
+      | {
+          pr_snapshot: string | null;
+          contract_state: string | null;
+          retro_reports: string | null;
+          session_profile: string | null;
+          project_state: string | null;
+        }
       | undefined;
     return {
       pr: row?.pr_snapshot ? (JSON.parse(row.pr_snapshot) as PrSnap) : idlePr(sessionId),
       contract: row?.contract_state ? (JSON.parse(row.contract_state) as ContractState) : defaultContract(),
-      retro: row?.retro_reports ? (JSON.parse(row.retro_reports) as RetroReport[]) : []
+      retro: row?.retro_reports ? (JSON.parse(row.retro_reports) as RetroReport[]) : [],
+      sessionProfile: row?.session_profile
+        ? (JSON.parse(row.session_profile) as WorkspaceSessionProfile)
+        : defaultSessionProfile(),
+      projectState: row?.project_state
+        ? (JSON.parse(row.project_state) as ProjectStateRecord)
+        : defaultProjectState()
     };
   }
 
   private setFull(
     sessionId: string,
-    data: { pr: PrSnap; contract: ContractState; retro: RetroReport[] }
+    data: {
+      pr: PrSnap;
+      contract: ContractState;
+      retro: RetroReport[];
+      sessionProfile: WorkspaceSessionProfile;
+      projectState: ProjectStateRecord;
+    }
   ): void {
     this.db
       .prepare(
-        `INSERT INTO workspace_session (session_id, pr_snapshot, contract_state, retro_reports, updated_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO workspace_session (session_id, pr_snapshot, contract_state, retro_reports, session_profile, project_state, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            pr_snapshot = excluded.pr_snapshot,
            contract_state = excluded.contract_state,
            retro_reports = excluded.retro_reports,
+           session_profile = excluded.session_profile,
+           project_state = excluded.project_state,
            updated_at = excluded.updated_at`
       )
       .run(
@@ -158,6 +234,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         JSON.stringify(data.pr),
         JSON.stringify(data.contract),
         JSON.stringify(data.retro),
+        JSON.stringify(data.sessionProfile),
+        JSON.stringify(data.projectState),
         new Date().toISOString()
       );
   }
@@ -172,6 +250,31 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     this.setFull(sessionId, f);
   }
 
+  getSessionProfile(sessionId: string): WorkspaceSessionProfile {
+    return { ...this.getFull(sessionId).sessionProfile };
+  }
+
+  saveSessionProfile(sessionId: string, profile: WorkspaceSessionProfile): void {
+    const f = this.getFull(sessionId);
+    f.sessionProfile = { ...profile };
+    this.setFull(sessionId, f);
+  }
+
+  getProjectState(sessionId: string): ProjectStateRecord {
+    const p = this.getFull(sessionId).projectState;
+    return { ...p, approvedRequirements: [...p.approvedRequirements], currentApiSpecs: [...p.currentApiSpecs] };
+  }
+
+  saveProjectState(sessionId: string, state: ProjectStateRecord, expectedVersion?: number): { ok: true } | { ok: false; code: string } {
+    const f = this.getFull(sessionId);
+    if (expectedVersion != null && f.projectState.stateVersion !== expectedVersion) {
+      return { ok: false, code: "VERSION_CONFLICT" };
+    }
+    f.projectState = { ...state, stateVersion: state.stateVersion };
+    this.setFull(sessionId, f);
+    return { ok: true };
+  }
+
   getContractState(sessionId: string): ContractState {
     return this.getFull(sessionId).contract;
   }
@@ -180,6 +283,11 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     const f = this.getFull(sessionId);
     f.contract = contract;
     this.setFull(sessionId, f);
+  }
+
+  isPromptSpecApproved(sessionId: string): boolean {
+    const v = this.getFull(sessionId).sessionProfile.promptSpecApprovedVersion;
+    return v != null && v > 0;
   }
 
   getRetroReports(sessionId: string): RetroReport[] {
@@ -287,7 +395,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       .run(prNumber, JSON.stringify(result), checkedAt);
   }
 
-  getPrValidationResult(prNumber: number): PrValidationStatusRecord | null {
+  getPrValidationCacheRow(prNumber: number): PrValidationCacheRow | null {
     const row = this.db
       .prepare(
         "SELECT result_json, checked_at FROM pr_validation_cache WHERE pr_number = ?"
@@ -300,6 +408,14 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       prNumber,
       result: JSON.parse(row.result_json) as ValidationResult,
       checkedAt: row.checked_at
+    };
+  }
+
+  getPrValidationStatusEnvelope(prNumber: number): PrValidationStatusEnvelope {
+    return {
+      prNumber,
+      consecutiveFailures: this.getValidationFailureStreak(prNumber),
+      validation: this.getPrValidationCacheRow(prNumber)
     };
   }
 

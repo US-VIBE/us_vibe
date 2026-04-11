@@ -88,6 +88,13 @@ export class ContractGateController {
 
   @Post(":sessionId/contract/approve")
   async approve(@Param("sessionId") sessionId: string) {
+    if (!this.workspace.isPromptSpecApproved(sessionId)) {
+      return {
+        ok: false,
+        code: "PROMPT_SPEC_NOT_APPROVED",
+        message: "Prompt-to-Spec 승인(POST .../prompt-spec/approve) 후에만 계약 최종 승인이 가능합니다."
+      };
+    }
     const st = this.workspace.getContractState(sessionId);
     if (!st.lastValidation?.passed) {
       return {

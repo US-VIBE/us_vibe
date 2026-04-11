@@ -508,7 +508,7 @@ paths:
                 $ref: "#/components/schemas/ContractError"
   /api/validation/status/{prNumber}:
     get:
-      summary: Latest static validation result for a PR (SQLite cache)
+      summary: PR validation cache + consecutive failure streak (loop guard)
       operationId: getApiValidationStatusByPr
       security:
         - bearerAuth: []
@@ -520,7 +520,7 @@ paths:
             type: integer
       responses:
         "200":
-          description: "ok true; data null if no cache row"
+          description: "ok true; data null if prNumber invalid; validation null if no SQLite cache row"
           content:
             application/json:
               schema:
@@ -531,6 +531,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ContractError"
+  /api/integration/unified-timeline:
+    get:
+      summary: SQLite integration events + Postgres collaboration timeline (UUID session only)
+      operationId: getApiIntegrationUnifiedTimeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Combined streams
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnifiedTimelineResponse"
+        "400":
+          description: Missing sessionId
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/integration/stream:
+    get:
+      summary: SSE Thought Stream (Redis integration events + heartbeat; use fetch + Authorization)
+      operationId: getApiIntegrationSseStream
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: text/event-stream
+        "401":
+          description: Unauthorized
   /api/vfs/snapshot:
     post:
       summary: Create VFS snapshot and emit integration event
@@ -606,13 +650,367 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ContractError"
+  /api/sessions/{sessionId}/role-gap:
+    get:
+      summary: Workspace role gap (human vs AI agents)
+      operationId: getWorkspaceRoleGap
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/session-profile:
+    patch:
+      summary: Update human roles for workspace session
+      operationId: patchWorkspaceSessionProfile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [humanRoleIds]
+              properties:
+                humanRoleIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/workspace-gates:
+    get:
+      summary: Prompt spec, contract, PR gate flags
+      operationId: getWorkspaceGates
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/project-state:
+    get:
+      summary: SSOT project state
+      operationId: getWorkspaceProjectState
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      summary: Update project state (optimistic concurrency)
+      operationId: patchWorkspaceProjectState
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/workspace-dod-verify:
+    post:
+      summary: Run repo validate-api-contract + workspace gate checks
+      operationId: postWorkspaceDodVerify
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/prompt-spec/convert:
+    post:
+      summary: Prompt to spec template
+      operationId: postWorkspacePromptSpecConvert
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                promptText:
+                  type: string
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/prompt-spec/approve:
+    post:
+      summary: Approve prompt spec (persists gate)
+      operationId: postWorkspacePromptSpecApprove
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                specVersion:
+                  type: integer
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/contract/validate:
+    post:
+      summary: Run mock OpenAPI validation
+      operationId: postWorkspaceContractValidate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                openApiYaml:
+                  type: string
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/contract/approve:
+    post:
+      summary: Approve contract after validation
+      operationId: postWorkspaceContractApprove
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/pr-review:
+    get:
+      summary: PR review snapshot
+      operationId: getWorkspacePrReview
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/pr-review/submit:
+    post:
+      summary: Submit PR for review
+      operationId: postWorkspacePrReviewSubmit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/pr-review/comments/{commentId}:
+    patch:
+      summary: Update PR comment reflection status
+      operationId: patchWorkspacePrReviewComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/pr-review/re-review:
+    post:
+      summary: Request re-review round
+      operationId: postWorkspacePrReviewReReview
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/pr-review/final-approve:
+    post:
+      summary: Final PR approve
+      operationId: postWorkspacePrReviewFinalApprove
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/retro/reports:
+    get:
+      summary: List retro reports
+      operationId: getWorkspaceRetroReports
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/retro/generate:
+    post:
+      summary: Generate retro report (rule-based KPI)
+      operationId: postWorkspaceRetroGenerate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 components:
+  parameters:
+    WorkspaceSessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ContractError"
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    WorkspaceJsonEnvelope:
+      type: object
+      description: Workspace session endpoints return JSON with ok and optional data/code
+      additionalProperties: true
     AuthCredentialsRequest:
       type: object
       required: [email, password]
@@ -843,7 +1241,7 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/IntegrationEvent"
-    PrValidationStatusRecord:
+    PrValidationCacheRow:
       type: object
       required: [prNumber, result, checkedAt]
       properties:
@@ -855,6 +1253,18 @@ components:
         checkedAt:
           type: string
           format: date-time
+    PrValidationStatusEnvelope:
+      type: object
+      required: [prNumber, consecutiveFailures, validation]
+      properties:
+        prNumber:
+          type: integer
+        consecutiveFailures:
+          type: integer
+        validation:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/PrValidationCacheRow"
     ValidationStatusResponse:
       type: object
       required: [ok]
@@ -864,7 +1274,34 @@ components:
         data:
           nullable: true
           allOf:
-            - $ref: "#/components/schemas/PrValidationStatusRecord"
+            - $ref: "#/components/schemas/PrValidationStatusEnvelope"
+    UnifiedTimelineResponse:
+      type: object
+      required: [ok, data]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          required: [sessionId, integrationEvents, postgresTimeline, postgresNote, bridgeHint]
+          properties:
+            sessionId:
+              type: string
+            integrationEvents:
+              type: array
+              items:
+                $ref: "#/components/schemas/IntegrationEvent"
+            postgresTimeline:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            postgresNote:
+              nullable: true
+              type: string
+            bridgeHint:
+              type: string
     VfsSnapshotRequest:
       type: object
       required: [files, agentType, sessionId]
