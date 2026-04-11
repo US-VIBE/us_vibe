@@ -239,7 +239,7 @@ export function WorkspaceApp({
         setSelectedRetroId(remote[0]?.id ?? null);
       }
     })();
-  }, [session.sessionId]);
+  }, [session]);
 
   const handleConvert = useCallback(async () => {
     setSpecErr(null);

@@ -18,13 +18,17 @@ function apiUrlConfigured(): boolean {
 export function SessionGate() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuthState());
   const [session, setSession] = useState<LearningSession | null>(() => loadSession());
-  const [authChecked, setAuthChecked] = useState(() => !apiUrlConfigured());
+  /** API 미설정·토큰 없음은 비동기 확인 불필요 → 초기값에서 완료 처리(effect 내 동기 setState 금지 회피) */
+  const [authChecked, setAuthChecked] = useState(() => {
+    if (!apiUrlConfigured()) return true;
+    const existing = loadAuthState();
+    return !existing?.token;
+  });
 
   useEffect(() => {
     if (!apiUrlConfigured()) return;
     const existing = loadAuthState();
     if (!existing?.token) {
-      setAuthChecked(true);
       return;
     }
     let cancelled = false;
