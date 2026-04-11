@@ -2,136 +2,89 @@
 
 > **문서 패키지**: [`docs/integration-sandbox/`](./README.md) — 역할 **D(인테그레이션 & 샌드박스)** 담당 문서 모음입니다.
 >
-> 이 문서는 D 역할이 A(오케스트레이터), B(백엔드), C(프론트엔드)와 협업할 때 반드시 맞춰야 하는 이벤트 타입, 엔드포인트, 환경변수, 공유 타입을 정의합니다.
+> **팀 공통 진입점**: [`docs/collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) (URL·환경 변수·엔드포인트 표), [`docs/api/collaboration-endpoints-and-env.md`](../api/collaboration-endpoints-and-env.md) (시뮬 세션·인증 상세).
 >
-> **변경 규칙**: 이 문서의 내용을 변경하려면 `docs/team-role-charter.md`의 Cross-Team Handshake Rules 절차를 따릅니다.
+> 이 문서는 D 역할이 A(오케스트레이터), B(백엔드), C(프론트엔드)와 협업할 때 맞춰야 하는 **통합 이벤트 타입**, **HTTP 표면**, **저장소 구분**을 정의합니다.
+>
+> **변경 규칙**: [`docs/team-role-charter.md`](../team-role-charter.md)의 Cross-Team Handshake Rules 절차를 따릅니다.
 
 ---
 
-## 1. 이벤트 타입 표준
+## 0. 이벤트 저장소 구분 (구현 기준)
 
-모든 팀원(A/B/C/D)이 동일한 이벤트 타입 문자열을 사용합니다.
+| 저장소 | 용도 | 조회 |
+|--------|------|------|
+| **SQLite** (`DATABASE_PATH`, 워크스페이스 DB) | `integration_events` — D의 `IntegrationEvent` 스트림, PR 검증 캐시 | `GET /api/integration/events`, `GET /api/validation/status/:prNumber` |
+| **PostgreSQL** | `collaboration_events` — 에이전트/시뮬 타임라인 (`POST /collaboration/events`) | `GET /sessions/:id/timeline` |
+
+- 런타임 기본: [`EventPublisherSqlite`](../../apps/api/src/integration/event-publisher.sqlite.ts)가 통합 이벤트를 SQLite에 기록한다.
+- **Redis `REDIS_URL`**: JWT 폐기(denylist)용이다 ([`docs/backend/redis-usage.md`](../backend/redis-usage.md)). D용 Pub/Sub는 **별도 합의 후** 도입한다.
+- 시뮬 세션 UUID와 웹훅을 묶으면, 선택적으로 Postgres에도 미러링한다 ([`event-vocabulary-map.md`](event-vocabulary-map.md), [`integration-timeline-bridge.service.ts`](../../apps/api/src/integration/integration-timeline-bridge.service.ts) 구현 참고).
+
+---
+
+## 1. 이벤트 타입 표준 (`IntegrationEventType`)
+
+[`specs/data-model/types.ts`](../../specs/data-model/types.ts)와 동일한 문자열을 사용한다.
 
 ```typescript
-// 위치: specs/data-model/types.ts 에 함께 정의
 type IntegrationEventType =
-  | 'PR_OPENED'             // GitHub PR 생성
-  | 'PR_UPDATED'            // GitHub PR 커밋 추가/수정
-  | 'PR_MERGED'             // GitHub PR 머지 완료
-  | 'VALIDATION_PASSED'     // 정적 검증(Lint+TS+Contract) 전체 통과
-  | 'VALIDATION_FAILED'     // 정적 검증 1개 이상 실패
-  | 'CODE_DELTA_ANALYZED'   // 코드 변경 분석 완료 (SSOT codeDeltaSummary 갱신)
-  | 'CONTRACT_CHANGED'      // OpenAPI 스펙 변경 감지
-  | 'VFS_SNAPSHOT_CREATED'  // AI 산출물 VFS 스냅샷 저장 완료
-  | 'VFS_APPROVED'          // 학습자가 VFS 스냅샷 승인 → 실제 브랜치 반영 준비
+  | 'PR_OPENED' | 'PR_UPDATED' | 'PR_MERGED'
+  | 'VALIDATION_PASSED' | 'VALIDATION_FAILED'
+  | 'CODE_DELTA_ANALYZED' | 'CONTRACT_CHANGED'
+  | 'VFS_SNAPSHOT_CREATED' | 'VFS_APPROVED'
 ```
+
+Postgres `collaboration_events.eventType` 권장 값과의 **매핑**은 [`event-vocabulary-map.md`](event-vocabulary-map.md)를 본다.
 
 ---
 
 ## 2. 이벤트 공통 페이로드 스키마
 
-D가 발행하는 모든 이벤트는 아래 구조를 따릅니다. A(오케스트레이터)가 이 구조를 기준으로 수신합니다.
+`IntegrationEvent` 구조는 [`specs/data-model/types.ts`](../../specs/data-model/types.ts)에 정의되어 있다.
 
-```typescript
-// 위치: specs/data-model/types.ts
-type IntegrationEvent = {
-  type: IntegrationEventType;
-  sessionId: string;          // 현재 학습 세션 ID (A가 생성, D가 참조)
-  stateVersion: number;       // 이벤트 발행 시점의 SSOT stateVersion
-  triggeredBy: 'github' | 'user' | 'agent';
-  payload: IntegrationEventPayload;
-  timestamp: string;          // ISO 8601
-}
-
-type ValidationResult = {
-  passed: boolean;
-  checks: {
-    lint: { passed: boolean; errors: LintError[] };
-    typecheck: { passed: boolean; errors: string[] };
-    contract: { passed: boolean; diffs: ContractDiff[] };
-  };
-  prNumber: number;
-  commitSha: string;
-}
-
-type ContractDiff = {
-  path: string;              // 변경된 엔드포인트 경로 (예: "/auth/login")
-  method: string;            // HTTP 메서드
-  changeType: 'added' | 'removed' | 'modified';
-  affectedFields: string[];  // 변경된 필드명 목록
-  impactedConsumers: string[]; // 영향받는 FE 컴포넌트/QA 테스트 목록
-}
-
-type LintError = {
-  file: string;
-  line: number;
-  rule: string;
-  message: string;
-}
-
-type IntegrationEventPayload =
-  | { prNumber: number; branch: string; author: string }                     // PR_OPENED / PR_UPDATED / PR_MERGED
-  | { validationResult: ValidationResult }                                   // VALIDATION_PASSED / VALIDATION_FAILED
-  | { codeDeltaSummary: CodeDeltaSummary }                                   // CODE_DELTA_ANALYZED
-  | { contractDiffs: ContractDiff[]; openApiVersion: string }                // CONTRACT_CHANGED
-  | { snapshotId: string; vfsBranch: string; diffUrl: string }              // VFS_SNAPSHOT_CREATED
-  | { snapshotId: string; targetBranch: string }                             // VFS_APPROVED
-
-type CodeDeltaSummary = {
-  newEndpoints: string[];
-  modifiedEndpoints: string[];
-  removedEndpoints: string[];
-  dtoChanges: string[];
-  riskItems: string[];       // Senior Agent가 검토해야 할 항목
-}
-```
+- **`sessionId`**: 워크스페이스·웹훅 기본값은 환경 변수 `INTEGRATION_WEBHOOK_SESSION_ID` 또는 `github-ingest`. 시뮬레이터와 타임라인을 맞추려면 **실제 시뮬 세션 UUID**로 설정한다 ([`docs/collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3).
+- **`stateVersion`**: 발행 시 `0`이면 SQLite 삽입 시 해당 `session_id` 기준 **MAX+1 자동 부여** ([`WorkspacePersistenceService.appendIntegrationEvent`](../../apps/api/src/persistence/workspace-persistence.service.ts)).
 
 ---
 
 ## 3. D 소유 엔드포인트
 
-아래 엔드포인트는 D가 `apps/api` 내에 구현합니다. B(백엔드 Core)와 경로 충돌이 없도록 `/webhooks`, `/api/vfs`, `/api/validation` 네임스페이스를 D가 소유합니다.
-
 | 메서드 | 경로 | 설명 | 인증 |
 |--------|------|------|------|
-| `POST` | `/webhooks/github` | GitHub Webhook 수신 (HMAC-SHA256 서명 검증) | `X-Hub-Signature-256` |
-| `GET` | `/api/validation/status/:prNumber` | PR 번호 기준 최신 검증 결과 조회 | 세션 토큰 |
-| `POST` | `/api/vfs/snapshot` | AI 산출물 VFS 스냅샷 저장 | 세션 토큰 |
-| `GET` | `/api/vfs/diff/:snapshotId` | 스냅샷 ID 기준 변경 Diff 조회 | 세션 토큰 |
-| `POST` | `/api/vfs/approve/:snapshotId` | 학습자 승인 → 실제 브랜치 반영 준비 | 세션 토큰 |
+| `POST` | `/webhooks/github` | GitHub Webhook (HMAC-SHA256) | `X-Hub-Signature-256` (본문 raw) |
+| `GET` | `/api/integration/events` | 통합 이벤트 스트림 (폴링) | Bearer JWT |
+| `GET` | `/api/validation/status/:prNumber` | PR별 최신 정적 검증 결과 | Bearer JWT |
+| `POST` | `/api/vfs/snapshot` | VFS 스냅샷 생성 | Bearer JWT |
+| `GET` | `/api/vfs/diff/:snapshotId` | Diff 조회 | Bearer JWT |
+| `POST` | `/api/vfs/approve/:snapshotId` | 스냅샷 승인 | Bearer JWT |
 
-### 응답 형식 (B의 에러 포맷 규칙과 동일하게 맞춤)
-
-```typescript
-// 성공
-{ ok: true; data: T }
-
-// 실패
-{ ok: false; code: string; message: string }
-```
+성공/실패 래퍼는 워크스페이스 API 관례에 맞춘다 (`{ ok: true, data }` / `{ ok: false, code, message }`).
 
 ---
 
-## 4. 환경변수 소유 명시
+## 4. 환경변수 (D 관련)
 
-`.env` 파일에서 각 변수의 소유자를 주석으로 명시합니다. 소유자만 값을 설정하고, 다른 팀원은 참조만 합니다.
+상세 표는 [`docs/collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3. 요약:
 
 ```dotenv
-# ── D 소유 (인테그레이션 & 샌드박스) ──────────────────────
-GITHUB_WEBHOOK_SECRET=           # GitHub Webhook 서명 검증 시크릿
-GITHUB_TOKEN=                    # GitHub API 호출용 PAT (repo 권한)
-VFS_STORAGE_PATH=./vfs-store     # VFS 스냅샷 저장 경로 (로컬 개발용)
+# D (연동·VFS·웹훅)
+GITHUB_WEBHOOK_SECRET=
+GITHUB_TOKEN=
+GITHUB_REPO_OWNER=
+GITHUB_REPO_NAME=
+VFS_STORAGE_PATH=./vfs-store
+INTEGRATION_WEBHOOK_SESSION_ID=   # 시뮬 세션 UUID 권장 (타임라인·미러링 일치)
 
-# ── B 소유 (백엔드 & 데이터) — D가 읽기 참조 ─────────────
-DATABASE_URL=                    # PostgreSQL 연결 문자열
-API_PORT=3001                    # NestJS 서버 포트
-API_BASE_URL=http://localhost:3001
+# API (공통)
+API_PORT=4000
+# API_BASE_URL=http://localhost:4000   # 클라이언트·문서 기본
 
-# ── A 소유 (AI 오케스트레이터) — D가 이벤트 발행 시 사용 ──
-REDIS_URL=redis://localhost:6379  # Redis Pub/Sub (integration:events 채널)
+# 워크스페이스 SQLite (Nest)
+DATABASE_PATH=./data/usvibe.db
 
-# ── 공통 (전체 팀) ─────────────────────────────────────────
-NODE_ENV=development
+# PostgreSQL·Redis — B 문서 참고 (Redis는 JWT 폐기용)
+# DATABASE_URL=  JWT_SECRET=  REDIS_URL=
 ```
 
 ---
@@ -142,32 +95,22 @@ NODE_ENV=development
 
 | 항목 | 규칙 |
 |------|------|
-| 이벤트 발행 채널 | Redis Pub/Sub `integration:events` |
-| 이벤트 발행 시점 | 정적 검증 완료, VFS 스냅샷 생성, 학습자 VFS 승인 시 |
-| Gate B 트리거 | `VALIDATION_PASSED` 이벤트 수신 시 A가 Gate B(API 계약 승인) 상태 전환 |
-| SSOT 갱신 요청 | D는 직접 SSOT를 수정하지 않음. `CODE_DELTA_ANALYZED` 이벤트에 `codeDeltaSummary`를 담아 발행하면 A가 SSOT의 `codeDeltaSummary` 필드 갱신 |
-| `stateVersion` | 이벤트 발행 전 A의 `GET /api/session/:sessionId/state-version`을 호출해 현재 버전 조회 후 페이로드에 포함 |
+| 1차 이벤트 소스 | SQLite `integration_events` — `GET /api/integration/events?sessionId=&limit=` 폴링 또는 후속 Redis Pub/Sub (합의 시) |
+| 이벤트 발행 시점 | 정적 검증 완료, VFS 스냅샷/승인, GitHub PR 훅 처리 시 (구현: `EventPublisherSqlite`) |
+| Postgres 미러 | `INTEGRATION_WEBHOOK_SESSION_ID`가 **UUID**일 때만 `collaboration_events`에 권장 타입으로 append (선택, B 리뷰) |
+| Gate 연계 | `VALIDATION_PASSED` 등은 시뮬 게이트와 별개일 수 있음 — 제품 규칙은 A가 SSOT에 반영 |
 
-**A가 D에게 제공해야 하는 것:**
-- `GET /api/session/:sessionId/state-version` 엔드포인트 (A 소유)
-- `sessionId` 값 (세션 시작 시 A가 생성, D에게 공유)
-- Redis 채널명 변경 시 사전 공지
+**A가 D와 맞출 것:** 시뮬 세션 ID를 웹훅·워크스페이스에 전달하는 방식, 향후 Redis 채널명·스키마.
 
 ---
 
-### 5-B. B(백엔드 & 데이터, 한승준)와 인터페이스
+### 5-B. B(백엔드 & 데이터, 박준용)와 인터페이스
 
 | 항목 | 규칙 |
 |------|------|
-| OpenAPI 파일 경로 | `specs/openapi/v{major}.yaml` (B 소유, D가 읽기) |
-| 계약 변경 감지 | D의 CI에서 `specs/openapi/` 파일 변경을 감지해 `CONTRACT_CHANGED` 이벤트 발행 |
-| 검증 실패 알림 | `VALIDATION_FAILED` 이벤트 + PR 코멘트 자동 생성 (D가 `GITHUB_TOKEN`으로 작성) |
-| 공유 타입 위치 | `specs/data-model/types.ts` — B가 도메인 타입 소유, D가 `ValidationResult`, `ContractDiff` 추가 |
-| API 버전 규칙 | `v{major}` 정수만 사용 (예: `v1`, `v2`). 마이너 변경은 `v1.1.yaml` → `v1` 파일 내 `info.version` 필드로 구분 |
-
-**B가 D에게 제공해야 하는 것:**
-- OpenAPI 파일 업데이트 시 PR에 `[contract-changed]` 라벨 추가 (D CI가 감지용)
-- 에러 응답 형식: `{ code: string; message: string }` — D가 검증 실패 메시지 작성 시 동일 형식 사용
+| OpenAPI 정본 | [`specs/openapi/v1.yaml`](../../specs/openapi/v1.yaml) — D 표면 경로 포함 유지 |
+| 계약 변경 | CI·`CONTRACT_CHANGED`·OpenAPI 동기화 ([`docs/backend/team-handshake.md`](../backend/team-handshake.md)) |
+| 공유 타입 | [`specs/data-model/types.ts`](../../specs/data-model/types.ts) |
 
 ---
 
@@ -175,15 +118,8 @@ NODE_ENV=development
 
 | 항목 | 규칙 |
 |------|------|
-| 빌드 결과물 경로 | `apps/web/.next/` (CI에서 빌드 성공 여부 확인) |
-| ESLint 공통 규칙 | 루트 `.eslintrc.js` (D가 관리, C와 합의 후 수정) |
-| TypeScript 설정 | `apps/web/tsconfig.json`, `apps/api/tsconfig.json` 각자 소유 / 루트 `tsconfig.base.json`은 D가 관리 |
-| 검증 실패 시 | PR merge 블록 (GitHub Branch Protection) + PR 코멘트에 실패 항목 목록 명시 |
-| VFS Diff 조회 | C의 프론트 코드가 `GET /api/vfs/diff/:snapshotId`를 호출해 Diff UI 렌더링 |
-
-**C가 D에게 제공해야 하는 것:**
-- `apps/web` 빌드 명령어 변경 시 사전 공지 (현재: `npm run build -w web`)
-- 새 lint 규칙 예외가 필요한 경우 PR 코멘트로 D에게 요청
+| API 베이스 | `NEXT_PUBLIC_API_URL` ([`docs/fe-web-integration.md`](../fe-web-integration.md)) |
+| 통합 이벤트 폴링 | `GET /api/integration/events` + Bearer |
 
 ---
 
@@ -193,12 +129,12 @@ NODE_ENV=development
 PR 생성/업데이트
   └─ [CI: lint]        ─ 실패 시 merge 블록
   └─ [CI: typecheck]   ─ 실패 시 merge 블록
-  └─ [CI: contract]    ─ 실패 시 merge 블록 + CONTRACT_CHANGED 감지 시 이벤트 발행
+  └─ [CI: contract]    ─ 실패 시 merge 블록
   └─ [CI: build]       ─ 실패 시 merge 블록
 
-모두 통과
-  └─ VALIDATION_PASSED 이벤트 → Redis integration:events
-  └─ A가 Gate B 상태 전환 가능 상태로 업데이트
+(런타임) GitHub Webhook 수신 시
+  └─ 정적 검증 실행 → SQLite integration_events + pr_validation_cache 갱신
+  └─ (선택) sessionId=UUID → Postgres collaboration_events 미러
 ```
 
 ---
@@ -207,4 +143,5 @@ PR 생성/업데이트
 
 | 날짜 | 변경 내용 | 담당자 |
 |------|-----------|--------|
-| 2026-04-10 | 초안 작성 | D (박준용) |
+| 2026-04-10 | 초안 작성 | D |
+| 2026-04-10 | SQLite 1차 스트림·포트 4000·Redis 역할 정정·엔드포인트 표 보강 | D (한승준) |
