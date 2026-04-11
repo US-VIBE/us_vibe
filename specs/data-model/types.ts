@@ -14,6 +14,7 @@ export type IntegrationEventType =
   | "PR_MERGED"
   | "VALIDATION_PASSED"
   | "VALIDATION_FAILED"
+  | "VALIDATION_LOOP_DETECTED"
   | "CODE_DELTA_ANALYZED"
   | "CONTRACT_CHANGED"
   | "VFS_SNAPSHOT_CREATED"
@@ -60,6 +61,7 @@ export interface CodeDeltaSummary {
 export type IntegrationEventPayload =
   | { prNumber: number; branch: string; author: string }
   | { validationResult: ValidationResult }
+  | { prNumber: number; consecutiveFailures: number }
   | { codeDeltaSummary: CodeDeltaSummary }
   | { contractDiffs: ContractDiff[]; openApiVersion: string }
   | { snapshotId: string; vfsBranch: string; diffUrl: string }

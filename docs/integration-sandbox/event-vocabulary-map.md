@@ -14,6 +14,7 @@
 | `IntegrationEventType` | Postgres `eventType` | 비고 |
 |------------------------|----------------------|------|
 | `VALIDATION_FAILED` | `contract_violation` | `payload`에 `validationResult`·`integrationType` 등 포함 |
+| `VALIDATION_LOOP_DETECTED` | `contract_violation` | `prNumber`, `consecutiveFailures`(연속 실패 streak) |
 | `VALIDATION_PASSED` | `review_passed` | 동일 |
 | `PR_OPENED`, `PR_UPDATED`, `PR_MERGED` | `supervisor_route` | PR 메타(`prNumber`, `branch`, `author`) |
 | `CODE_DELTA_ANALYZED` | `supervisor_route` | `codeDeltaSummary` |
