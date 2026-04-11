@@ -103,6 +103,11 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         result_json TEXT NOT NULL,
         checked_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS pr_validation_failure_streak (
+        pr_number INTEGER PRIMARY KEY,
+        streak INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
     `);
     this.logger.log(`SQLite workspace state: ${dbPath}`);
   }
@@ -224,6 +229,49 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       `[integration] ${resolved.type} session=${resolved.sessionId} v=${resolved.stateVersion} by=${resolved.triggeredBy}`
     );
     return resolved;
+  }
+
+  getValidationFailureStreak(prNumber: number): number {
+    const row = this.db
+      .prepare("SELECT streak FROM pr_validation_failure_streak WHERE pr_number = ?")
+      .get(prNumber) as { streak: number } | undefined;
+    return row?.streak ?? 0;
+  }
+
+  resetPrValidationStreak(prNumber: number): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO pr_validation_failure_streak (pr_number, streak, updated_at)
+         VALUES (?, 0, ?)
+         ON CONFLICT(pr_number) DO UPDATE SET streak = 0, updated_at = excluded.updated_at`
+      )
+      .run(prNumber, now);
+  }
+
+  /**
+   * 검증 실패 시 streak 증가. 성공 시 0으로 리셋.
+   * @returns loopJustDetected — 이번 실패로 streak가 정확히 5가 된 경우
+   */
+  recordValidationOutcome(
+    prNumber: number,
+    passed: boolean
+  ): { streak: number; loopJustDetected: boolean } {
+    const now = new Date().toISOString();
+    if (passed) {
+      this.resetPrValidationStreak(prNumber);
+      return { streak: 0, loopJustDetected: false };
+    }
+    const prev = this.getValidationFailureStreak(prNumber);
+    const next = prev + 1;
+    this.db
+      .prepare(
+        `INSERT INTO pr_validation_failure_streak (pr_number, streak, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(pr_number) DO UPDATE SET streak = excluded.streak, updated_at = excluded.updated_at`
+      )
+      .run(prNumber, next, now);
+    return { streak: next, loopJustDetected: next === 5 };
   }
 
   savePrValidationResult(prNumber: number, result: ValidationResult): void {

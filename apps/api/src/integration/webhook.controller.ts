@@ -17,6 +17,7 @@ import { ReportService } from "./report.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent, IntegrationEventType } from "../../../../specs/data-model/types";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 
 interface GitHubPrPayload {
   action: string;
@@ -24,12 +25,14 @@ interface GitHubPrPayload {
   pull_request: {
     head: { sha: string; ref: string };
     user: { login: string };
+    merged?: boolean;
   };
 }
 
 interface GitHubPushPayload {
   ref: string;
   after: string;
+  before: string;
 }
 
 @Controller("webhooks")
@@ -41,6 +44,7 @@ export class WebhookController {
     private readonly validationService: ValidationService,
     private readonly reportService: ReportService,
     private readonly workspace: WorkspacePersistenceService,
+    private readonly codeDeltaRunner: CodeDeltaRunnerService,
     @Inject(EVENT_PUBLISHER) private readonly eventPublisher: IEventPublisher,
   ) {
     this.webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
@@ -116,7 +120,8 @@ export class WebhookController {
       eventType = "PR_OPENED";
     } else if (action === "synchronize") {
       eventType = "PR_UPDATED";
-    } else if (action === "closed" && (payload as unknown as Record<string, unknown>)["merged"] === true) {
+    } else if (action === "closed" && Boolean(pull_request.merged)) {
+      this.workspace.resetPrValidationStreak(prNumber);
       eventType = "PR_MERGED";
       await this.publishEvent(eventType, { prNumber, branch, author });
       return;
@@ -125,19 +130,58 @@ export class WebhookController {
       return;
     }
 
-    // PR_OPENED / PR_UPDATED: 정적 검증 실행
+    if (action === "opened") {
+      this.workspace.resetPrValidationStreak(prNumber);
+    }
+
     this.logger.log(`정적 검증 시작: PR #${prNumber} (${eventType})`);
     await this.publishEvent(eventType, { prNumber, branch, author });
 
-    const validationResult = await this.validationService.runAll(prNumber, commitSha);
+    const streak = this.workspace.getValidationFailureStreak(prNumber);
+    if (streak >= 5) {
+      this.logger.warn(`PR #${prNumber} 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`);
+      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
+        prNumber,
+        consecutiveFailures: streak
+      });
+      return;
+    }
+
+    const maxMs = Math.min(
+      120_000,
+      Math.max(5_000, Number(process.env.WEBHOOK_VALIDATION_MAX_MS ?? 28_000))
+    );
+    let validationResult: Awaited<ReturnType<ValidationService["runAll"]>>;
+    try {
+      validationResult = await Promise.race([
+        this.validationService.runAll(prNumber, commitSha),
+        new Promise<never>((_, rej) => {
+          const t = setTimeout(() => rej(new Error("WEBHOOK_VALIDATION_TIMEOUT")), maxMs);
+          t.unref?.();
+        })
+      ]);
+    } catch (e) {
+      if ((e as Error).message === "WEBHOOK_VALIDATION_TIMEOUT") {
+        this.logger.warn(`PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 스킵`);
+        return;
+      }
+      throw e;
+    }
+
     this.workspace.savePrValidationResult(prNumber, validationResult);
+    const outcome = this.workspace.recordValidationOutcome(prNumber, validationResult.passed);
+    if (outcome.loopJustDetected) {
+      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
+        prNumber,
+        consecutiveFailures: outcome.streak
+      });
+    }
 
     if (validationResult.passed) {
       await this.publishEvent("VALIDATION_PASSED", { validationResult });
     } else {
       await this.publishEvent("VALIDATION_FAILED", { validationResult });
 
-      // GitHub PR 코멘트 자동 작성
       const repoOwner = process.env.GITHUB_REPO_OWNER ?? "";
       const repoName = process.env.GITHUB_REPO_NAME ?? "";
       if (repoOwner && repoName) {
@@ -149,22 +193,10 @@ export class WebhookController {
 
   private async handlePush(payload: GitHubPushPayload): Promise<void> {
     const commitSha = payload.after;
+    const beforeSha = payload.before ?? "";
     this.logger.log(`코드 커밋 감지: ${commitSha}`);
-    // CODE_COMMITTED 이벤트 발행 → code-delta-analyzer.js는 CI에서 실행되므로
-    // 여기서는 이벤트만 발행하고 분석 결과는 CI 완료 후 파일에서 읽어온다.
-    await this.publishEvent("CODE_DELTA_ANALYZED", {
-      codeDeltaSummary: {
-        commitSha,
-        analyzedAt: new Date().toISOString(),
-        newEndpoints: [],
-        modifiedEndpoints: [],
-        removedEndpoints: [],
-        dtoChanges: [],
-        riskItems: [],
-        contractChanged: false,
-        changedFiles: [],
-      },
-    });
+    const codeDeltaSummary = this.codeDeltaRunner.runForPush(beforeSha, commitSha);
+    await this.publishEvent("CODE_DELTA_ANALYZED", { codeDeltaSummary });
   }
 
   private async publishEvent(
