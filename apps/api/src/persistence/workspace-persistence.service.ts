@@ -2,7 +2,11 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
-import type { IntegrationEvent, ValidationResult } from "../../../../specs/data-model/types";
+import type {
+  CodeDeltaSummary,
+  IntegrationEvent,
+  ValidationResult,
+} from "../../../../specs/data-model/types";
 
 /** PR 리뷰 스냅샷 — pr-review.controller와 동일 형태 */
 export type PrCommentStatus = "pending" | "addressed" | "deferred" | "needs_clarification";
@@ -60,6 +64,9 @@ export interface ProjectStateRecord {
   rejectedDecisions: string[];
   openQuestions: string[];
   activeSprintGoal: string | null;
+  /** push 웹훅 `CODE_DELTA_ANALYZED` 시 SQLite에 병합(O-4). 없으면 null */
+  codeDeltaSummary: CodeDeltaSummary | null;
+  lastCodeDeltaAt: string | null;
 }
 
 /** GitHub 웹훅 정적 검증 결과 — SQLite `pr_validation_cache` SSOT */
@@ -101,6 +108,51 @@ function defaultSessionProfile(): WorkspaceSessionProfile {
   };
 }
 
+function cloneCodeDeltaSummary(s: CodeDeltaSummary): CodeDeltaSummary {
+  return {
+    ...s,
+    newEndpoints: [...s.newEndpoints],
+    modifiedEndpoints: [...s.modifiedEndpoints],
+    removedEndpoints: [...s.removedEndpoints],
+    dtoChanges: [...s.dtoChanges],
+    riskItems: [...s.riskItems],
+    changedFiles: [...s.changedFiles],
+  };
+}
+
+function normalizeProjectState(raw: unknown): ProjectStateRecord {
+  const d = defaultProjectState();
+  if (!raw || typeof raw !== "object") {
+    return d;
+  }
+  const o = raw as Record<string, unknown>;
+  return {
+    stateVersion: typeof o.stateVersion === "number" ? o.stateVersion : d.stateVersion,
+    approvedRequirements: Array.isArray(o.approvedRequirements)
+      ? [...(o.approvedRequirements as string[])]
+      : [...d.approvedRequirements],
+    currentApiSpecs: Array.isArray(o.currentApiSpecs)
+      ? [...(o.currentApiSpecs as string[])]
+      : [...d.currentApiSpecs],
+    rejectedDecisions: Array.isArray(o.rejectedDecisions)
+      ? [...(o.rejectedDecisions as string[])]
+      : [...d.rejectedDecisions],
+    openQuestions: Array.isArray(o.openQuestions)
+      ? [...(o.openQuestions as string[])]
+      : [...d.openQuestions],
+    activeSprintGoal:
+      o.activeSprintGoal === undefined
+        ? d.activeSprintGoal
+        : (o.activeSprintGoal as string | null),
+    codeDeltaSummary:
+      o.codeDeltaSummary != null && typeof o.codeDeltaSummary === "object"
+        ? cloneCodeDeltaSummary(o.codeDeltaSummary as CodeDeltaSummary)
+        : null,
+    lastCodeDeltaAt:
+      typeof o.lastCodeDeltaAt === "string" ? o.lastCodeDeltaAt : null,
+  };
+}
+
 function defaultProjectState(): ProjectStateRecord {
   return {
     stateVersion: 1,
@@ -108,7 +160,9 @@ function defaultProjectState(): ProjectStateRecord {
     currentApiSpecs: ["specs/openapi/v1.yaml"],
     rejectedDecisions: [],
     openQuestions: [],
-    activeSprintGoal: null
+    activeSprintGoal: null,
+    codeDeltaSummary: null,
+    lastCodeDeltaAt: null,
   };
 }
 
@@ -202,7 +256,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         ? (JSON.parse(row.session_profile) as WorkspaceSessionProfile)
         : defaultSessionProfile(),
       projectState: row?.project_state
-        ? (JSON.parse(row.project_state) as ProjectStateRecord)
+        ? normalizeProjectState(JSON.parse(row.project_state))
         : defaultProjectState()
     };
   }
@@ -262,7 +316,52 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
 
   getProjectState(sessionId: string): ProjectStateRecord {
     const p = this.getFull(sessionId).projectState;
-    return { ...p, approvedRequirements: [...p.approvedRequirements], currentApiSpecs: [...p.currentApiSpecs] };
+    return {
+      ...p,
+      approvedRequirements: [...p.approvedRequirements],
+      currentApiSpecs: [...p.currentApiSpecs],
+      rejectedDecisions: [...p.rejectedDecisions],
+      openQuestions: [...p.openQuestions],
+      codeDeltaSummary: p.codeDeltaSummary
+        ? cloneCodeDeltaSummary(p.codeDeltaSummary)
+        : null,
+      lastCodeDeltaAt: p.lastCodeDeltaAt,
+    };
+  }
+
+  /** `workspace_session` 행 존재 여부 (기본 가상 상태와 구분) */
+  workspaceSessionRowExists(sessionId: string): boolean {
+    const row = this.db
+      .prepare("SELECT 1 AS x FROM workspace_session WHERE session_id = ? LIMIT 1")
+      .get(sessionId) as { x: number } | undefined;
+    return row != null;
+  }
+
+  /**
+   * push 웹훅 코드 델타 분석 결과를 SQLite ProjectState에 반영(O-4).
+   * 해당 sessionId 행이 없으면 noop (학습 워크스페이스가 아직 만들어지지 않은 경우).
+   */
+  patchProjectStateCodeDelta(
+    sessionId: string,
+    summary: CodeDeltaSummary,
+  ): void {
+    if (!this.workspaceSessionRowExists(sessionId)) {
+      this.logger.debug(
+        `codeDelta ProjectState 스킵: workspace_session 없음 sessionId=${sessionId}`,
+      );
+      return;
+    }
+    const cur = this.getProjectState(sessionId);
+    const next: ProjectStateRecord = {
+      ...cur,
+      codeDeltaSummary: cloneCodeDeltaSummary(summary),
+      lastCodeDeltaAt: summary.analyzedAt,
+      stateVersion: cur.stateVersion + 1,
+    };
+    this.saveProjectState(sessionId, next);
+    this.logger.log(
+      `ProjectState codeDelta 갱신: sessionId=${sessionId} sha=${summary.commitSha}`,
+    );
   }
 
   saveProjectState(sessionId: string, state: ProjectStateRecord, expectedVersion?: number): { ok: true } | { ok: false; code: string } {
