@@ -1371,6 +1371,7 @@ export function WorkspaceApp({
                         <IntegrationToolsPanel
                           apiBaseUrl={base}
                           session={session}
+                          storyPrNumber={prSnap.prNumber}
                           onIntegrationSseLine={(line) =>
                             setSseThinkingLines((prev) => [...prev.slice(-14), line])
                           }
