@@ -36,13 +36,24 @@ const ROLE_OPTIONS: Array<{ id: string; label: string }> = [
 type Props = {
   apiBaseUrl: string;
   session: LearningSession;
+  /** 스토리3 PR 스냅샷 번호 — 설정 시 PR 검증 입력란 기본값·동기화 */
+  storyPrNumber?: number | null;
   /** Thought Stream(aside)에 한 줄 요약 전달 */
   onIntegrationSseLine?: (line: string) => void;
 };
 
-export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLine }: Props) {
+function prNumberToInput(n: number | null | undefined): string {
+  return n != null && Number.isFinite(n) ? String(n) : "";
+}
+
+export function IntegrationToolsPanel({
+  apiBaseUrl,
+  session,
+  storyPrNumber,
+  onIntegrationSseLine
+}: Props) {
   const sid = session.sessionId;
-  const [prInput, setPrInput] = useState("12");
+  const [prInput, setPrInput] = useState(() => prNumberToInput(storyPrNumber));
   const [valLoading, setValLoading] = useState(false);
   const [valErr, setValErr] = useState<string | null>(null);
   const [valData, setValData] = useState<Awaited<ReturnType<typeof fetchPrValidationStatus>>>(null);
@@ -98,6 +109,10 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
     refreshGates();
     refreshProjectState();
   }, [refreshGates, refreshProjectState]);
+
+  useEffect(() => {
+    setPrInput(prNumberToInput(storyPrNumber));
+  }, [storyPrNumber]);
 
   useEffect(() => {
     if (!sseOn) {
@@ -255,7 +270,8 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
         <p className="mt-1 text-xs text-slate-500">
           <code className="rounded bg-white px-1">GET /api/validation/status/{"{pr}"}</code> —{" "}
           <code className="rounded bg-white px-1">validation</code>은 SQLite 캐시,
-          <code className="rounded bg-white px-1">consecutiveFailures</code>는 연속 실패 streak입니다.
+          <code className="rounded bg-white px-1">consecutiveFailures</code>는 연속 실패 streak입니다. 스토리3에서 PR을
+          제출하면 아래 번호가 스냅샷과 맞춰집니다.
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="text-xs text-slate-600">

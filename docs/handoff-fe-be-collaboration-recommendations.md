@@ -29,7 +29,7 @@
 
 ## PR 검증
 
-- 검증 API 입력의 **하드코딩 PR 번호 제거**; 스토리3 스냅샷 `prNumber`로 시드.
+- 스토리3 스냅샷 `prNumber`로 연동 탭 PR 검증 입력란 시드 — 워크스페이스 [`IntegrationToolsPanel`](../apps/web/components/workspace/integration-tools-panel.tsx) `storyPrNumber` prop (F-4, 2026-04-12).
 
 ---
 
@@ -44,6 +44,17 @@
 
 - **권장 BE:** 신규 리포트에 선택 필드 `kpiBasis`(한 줄)로 이벤트 타입 근거 문구 저장.
 - **권장 FE:** 스토리5에 한 줄 표시; 구 리포트는 폴백 문구.
+
+---
+
+## FE 코드 스캔 메모 (F-5 / F-6 잔여, 티켓용)
+
+코드 점검만 수행한 기록이다. 구현은 별 티켓으로 진행한다.
+
+| ID | 관찰 |
+|----|------|
+| **F-5** | [`contract-gate-service.ts`](../apps/web/lib/contract-gate-service.ts) `validateOpenApiContract` / `approveContractGate`: 응답이 HTTP 200이어도 본문이 `{ ok: false, … }`이면 `unwrap`이 `data`를 반환하지 않아 **`validationResult` / 승인 결과 없이 목업·폴백으로 이어질 수 있다**. 서버 `code`·메시지를 파싱해 토스트/인라인 오류로 노출하는 분기가 필요하다. |
+| **F-6** | [`retro-types.ts`](../apps/web/lib/retro-types.ts)에 `kpiBasis` 없음; [`retro-service.ts`](../apps/web/lib/retro-service.ts)·스토리5 UI도 미표시. BE가 필드 추가 후 타입·한 줄 표시를 붙이면 된다. |
 
 ---
 
