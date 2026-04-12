@@ -1,5 +1,6 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -15,11 +16,16 @@ export class IntegrationEventsController {
 
   @Get("events")
   list(
+    @Req() req: AuthedRequest,
     @Query("sessionId") sessionId?: string,
     @Query("limit") limit?: string
   ): { ok: true; data: { events: IntegrationEvent[] } } {
     const n = parseInt(limit ?? "50", 10);
-    const events = this.workspace.listIntegrationEvents(sessionId?.trim() || undefined, n);
+    const sid = sessionId?.trim();
+    if (sid) {
+      this.workspace.assertWorkspaceSessionAccess(sid, req.user.sub);
+    }
+    const events = this.workspace.listIntegrationEvents(sid || undefined, n);
     return { ok: true, data: { events } };
   }
 
@@ -28,6 +34,7 @@ export class IntegrationEventsController {
    */
   @Get("unified-timeline")
   async unifiedTimeline(
+    @Req() req: AuthedRequest,
     @Query("sessionId") sessionId?: string,
     @Query("limit") limit?: string
   ): Promise<{
@@ -46,6 +53,7 @@ export class IntegrationEventsController {
     if (!sid) {
       return { ok: false, code: "BAD_REQUEST", message: "sessionId 쿼리가 필요합니다." };
     }
+    this.workspace.assertWorkspaceSessionAccess(sid, req.user.sub);
     const n = parseInt(limit ?? "50", 10);
     const integrationEvents = this.workspace.listIntegrationEvents(sid, n);
     const uuidV4 =

@@ -955,6 +955,7 @@ paths:
   /api/sessions/{sessionId}/retro/reports:
     get:
       summary: List retro reports
+      description: data.reports are WorkspaceRetroReport-shaped (optional kpiBasis on newer reports)
       operationId: getWorkspaceRetroReports
       security:
         - bearerAuth: []
@@ -972,6 +973,7 @@ paths:
   /api/sessions/{sessionId}/retro/generate:
     post:
       summary: Generate retro report (rule-based KPI)
+      description: data.report includes kpiBasis from integration_events counts (WorkspaceRetroReport)
       operationId: postWorkspaceRetroGenerate
       security:
         - bearerAuth: []
@@ -1048,6 +1050,50 @@ components:
           type: string
         message:
           type: string
+    WorkspaceRetroKpi:
+      type: object
+      required:
+        - roleBalanceScore
+        - reworkRatePercent
+        - reviewReflectionPercent
+        - communicationScore
+      properties:
+        roleBalanceScore:
+          type: integer
+        reworkRatePercent:
+          type: integer
+        reviewReflectionPercent:
+          type: integer
+        communicationScore:
+          type: integer
+    WorkspaceRetroReport:
+      type: object
+      required:
+        - id
+        - sessionId
+        - createdAt
+        - kpis
+        - nextActions
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        kpis:
+          $ref: "#/components/schemas/WorkspaceRetroKpi"
+        nextActions:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: string
+        kpiBasis:
+          type: string
+          description: Rule-based KPI derivation summary from integration_events (F-6)
     CollaborationEventRequest:
       type: object
       required: [eventType]
