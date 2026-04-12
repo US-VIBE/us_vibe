@@ -15,4 +15,6 @@ ENV NODE_ENV=production
 # Railway (and many hosts) probe $PORT; default to 8080 when unset so ingress matches the app.
 ENV PORT=8080
 EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=10s --start-period=120s --retries=5 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||'8080')+'/',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 CMD ["npm", "run", "start", "-w", "api"]

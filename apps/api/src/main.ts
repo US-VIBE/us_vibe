@@ -4,6 +4,7 @@ import { config } from "dotenv";
 config({ path: path.resolve(__dirname, "../../../.env") });
 
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { ContractHttpExceptionFilter } from "./http-exception.filter";
@@ -29,8 +30,12 @@ function resolveListenPort(): number {
 }
 
 async function bootstrap(): Promise<void> {
+  const logger = new Logger("Bootstrap");
   const app = await NestFactory.create(AppModule, { rawBody: true });
-  if (envFlagTrue(process.env.WEBHOOK_TRUST_PROXY)) {
+  const trustProxy =
+    envFlagTrue(process.env.WEBHOOK_TRUST_PROXY) ||
+    Boolean(process.env.RAILWAY_ENVIRONMENT?.trim());
+  if (trustProxy) {
     const adapter = app.getHttpAdapter();
     if (adapter.getType() === "express") {
       adapter.getInstance().set("trust proxy", true);
@@ -43,6 +48,7 @@ async function bootstrap(): Promise<void> {
   });
   const listenPort = resolveListenPort();
   await app.listen(listenPort, "0.0.0.0");
+  logger.log(`Listening on 0.0.0.0:${listenPort} (NODE_ENV=${process.env.NODE_ENV ?? "undefined"})`);
 }
 
 void bootstrap();
