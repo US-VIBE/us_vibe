@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "buildCommand": "NPM_CONFIG_PRODUCTION=false npm install && npm run build -w @us-vibe/backend && npm run build -w api"
+  },
+  "deploy": {
+    "startCommand": "npm run start -w api",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
