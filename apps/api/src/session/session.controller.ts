@@ -6,11 +6,10 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors
-  Req,
-  UseGuards
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -62,7 +61,8 @@ export class SessionController {
   }
 
   @Get(":sessionId/integration-hints")
-  integrationHints(@Param("sessionId") sessionId: string) {
+  integrationHints(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const pack = getScenarioPackById("login-mvp") ?? LOGIN_MVP_PACK;
     const snippet = renderGithubEnvSnippet(pack, sessionId);
     return {
@@ -78,7 +78,8 @@ export class SessionController {
   }
 
   @Get(":sessionId/in-app-notifications")
-  inAppNotifications(@Param("sessionId") sessionId: string) {
+  inAppNotifications(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     return {
       ok: true,
       data: this.workspace.listInAppNotifications(sessionId)
@@ -86,7 +87,8 @@ export class SessionController {
   }
 
   @Get(":sessionId/artifacts")
-  listArtifacts(@Param("sessionId") sessionId: string) {
+  listArtifacts(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     return { ok: true, data: this.workspace.listSessionArtifacts(sessionId) };
   }
 
@@ -106,8 +108,10 @@ export class SessionController {
           originalname: string;
         }
       | undefined,
-    @Body() body: { kind?: string }
+    @Body() body: { kind?: string },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     if (!file?.buffer) {
       throw new BadRequestException({
         ok: false,
