@@ -145,6 +145,15 @@ PR·정적 검증·VFS 관련 알림을 FE에서 따라갈 때는 **Bearer**로 
 4. 웹: `NEXT_PUBLIC_API_URL=http://localhost:4000` 후 `npm run dev:web`
 5. 브라우저에서 회원가입 또는 로그인 후 스토리 패널 사용
 
+### 5.1 FE–BE 연동 스모크 (수동)
+
+- [ ] `NEXT_PUBLIC_API_URL`이 API 베이스와 일치하고, 웹을 **재빌드**했다(`next dev`는 env 변경 후 재기동).
+- [ ] 로그인 후 Bearer가 `apiFetch`에 붙는다(401 없이 `/api/auth/me` 등).
+- [ ] 워크스페이스 **「연동 · CI/이벤트」** 탭에서 통합 이벤트 폴링이 동작한다(`GET /api/integration/events?sessionId=…`).
+- [ ] GitHub 웹훅 이벤트를 같은 화면에서 보려면 API `INTEGRATION_WEBHOOK_SESSION_ID`를 **워크스페이스 학습 `sessionId`(UUID)** 와 동일하게 맞춘다 — [`session-id-sync.md`](integration-sandbox/session-id-sync.md), [`collaboration-env-and-endpoints.md`](collaboration-env-and-endpoints.md) §3.1.
+- [ ] 스토리3에서 PR 제출 후, 동일 탭의 **PR 검증** 입력란에 스냅샷 PR 번호가 채워지고 `GET /api/validation/status/{pr}` 조회가 가능하다(F-4).
+- [ ] (선택) `GET /api/integration/unified-timeline`, SSE `GET /api/integration/stream` — Redis·세션 UUID 여부에 따라 Postgres 타임라인/SSE가 비어 있을 수 있다(정상일 수 있음).
+
 ---
 
 ## 6. 자동 테스트

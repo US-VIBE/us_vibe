@@ -113,6 +113,29 @@ export class ReportService {
     }
 
     const core = [
+    const shaShort =
+      result.commitSha.length >= 7
+        ? result.commitSha.slice(0, 7)
+        : result.commitSha;
+
+    const repro = [
+      "### 로컬 재현 (저장소 루트)",
+      "",
+      "아래는 루트 `.github/workflows/ci.yml`의 lint / typecheck / contract job과 동일한 축이다.",
+      "",
+      "```bash",
+      "npm run lint -w api && npm run lint -w web",
+      "npx tsc --noEmit -p apps/api/tsconfig.json",
+      "npx tsc --noEmit -p apps/web/tsconfig.json",
+      "node scripts/validate-api-contract.js",
+      "```",
+      "",
+      `- **PR:** #${result.prNumber} · **head SHA:** \`${shaShort}\` (\`${result.commitSha}\`)`,
+      "",
+      "> 계약: 웹훅은 `specs/openapi/v1.yaml`과 `specs/api-contract.md` 엔드포인트 목록 교차 검사를 쓴다. `validate-api-contract.js`에 추가 규칙이 있으면 CI만 실패할 수 있다.",
+    ].join("\n");
+
+    const body = [
       "## 정적 검증 실패 리포트",
       "",
       "| 검증 항목 | 결과 |",
@@ -121,8 +144,9 @@ export class ReportService {
       "",
       sections.join("\n\n"),
       "",
+      repro,
+      "",
       "> 수정 후 커밋을 추가하면 자동으로 재검증됩니다.",
-      "> 도움이 필요하면 채팅 채널에서 QA Agent에게 질문하세요.",
     ].join("\n");
 
     const preamble = options?.preambleMarkdown?.trim();

@@ -26,10 +26,9 @@ async function bootstrap(): Promise<void> {
     origin: true,
     credentials: true
   });
-  const port = process.env.API_PORT
-    ? parseInt(process.env.API_PORT, 10)
-    : 4000;
-  await app.listen(port);
+  const rawPort = process.env.PORT ?? process.env.API_PORT ?? "4000";
+  const port = Number.parseInt(rawPort, 10);
+  await app.listen(Number.isFinite(port) ? port : 4000);
 }
 
 void bootstrap();

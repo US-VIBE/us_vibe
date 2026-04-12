@@ -39,6 +39,7 @@ import type { CommentReflectionStatus, PrReviewSnapshot } from "@/lib/pr-review-
 import { clearPrReview, loadPrReview, savePrReview } from "@/lib/pr-persist";
 import {
   approveContractGate,
+  ContractGateError,
   isValidationPassing,
   validateOpenApiContract
 } from "@/lib/contract-gate-service";
@@ -398,8 +399,12 @@ export function WorkspaceApp({
             : "OpenAPI 검증 실패 — 계약 승인은 검증 통과 후에만 가능합니다."
         }
       ]);
-    } catch {
-      setContractErr("검증 요청에 실패했습니다.");
+    } catch (e) {
+      if (e instanceof ContractGateError) {
+        setContractErr(`[${e.code}] ${e.message}`);
+      } else {
+        setContractErr("검증 요청에 실패했습니다.");
+      }
     } finally {
       setContractBusy(null);
     }
@@ -426,7 +431,11 @@ export function WorkspaceApp({
         }
       ]);
     } catch (e) {
-      setContractErr(e instanceof Error ? e.message : "승인에 실패했습니다.");
+      if (e instanceof ContractGateError) {
+        setContractErr(`[${e.code}] ${e.message}`);
+      } else {
+        setContractErr(e instanceof Error ? e.message : "승인에 실패했습니다.");
+      }
     } finally {
       setContractBusy(null);
     }
@@ -1322,6 +1331,11 @@ export function WorkspaceApp({
                       <p className="text-[11px] text-slate-400">
                         ID <span className="font-mono">{sel.id.slice(0, 8)}…</span>
                       </p>
+                      <p className="text-xs leading-relaxed text-slate-600">
+                        <span className="font-medium text-slate-700">KPI 근거: </span>
+                        {sel.kpiBasis ??
+                          "(구 리포트) 통합 이벤트 기반 한 줄 근거가 없습니다. 새로 생성하면 표시됩니다."}
+                      </p>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         {(
                           [
@@ -1386,6 +1400,7 @@ export function WorkspaceApp({
                         <IntegrationToolsPanel
                           apiBaseUrl={base}
                           session={session}
+                          storyPrNumber={prSnap.prNumber}
                           onIntegrationSseLine={(line) =>
                             setSseThinkingLines((prev) => [...prev.slice(-14), line])
                           }

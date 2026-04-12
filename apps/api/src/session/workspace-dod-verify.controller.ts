@@ -1,9 +1,10 @@
-import { Controller, Logger, Param, Post, UseGuards } from "@nestjs/common";
+import { Controller, Logger, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { execFile } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import { getMonorepoRoot } from "../monorepo-root";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
@@ -20,7 +21,8 @@ export class WorkspaceDodVerifyController {
   constructor(private readonly workspace: WorkspacePersistenceService) {}
 
   @Post(":sessionId/workspace-dod-verify")
-  async verify(@Param("sessionId") sessionId: string) {
+  async verify(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const checks: Array<{ id: string; passed: boolean; detail?: string }> = [];
 
     const promptOk = this.workspace.isPromptSpecApproved(sessionId);

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import Database from "better-sqlite3";
 import * as crypto from "node:crypto";
 import * as fs from "fs";
@@ -48,6 +48,8 @@ export interface RetroReport {
   createdAt: string;
   kpis: RetroKpi;
   nextActions: [string, string, string];
+  /** F-6: 이벤트 로그 기반 KPI 산출 근거 한 줄 */
+  kpiBasis?: string;
 }
 
 /** SQLite `session_profile` — Sprint1 역할·Prompt-to-Spec 게이트 */
@@ -254,7 +256,28 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     `);
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
+    this.ensureColumn("workspace_session", "owner_user_id", "TEXT");
     this.logger.log(`SQLite workspace state: ${dbPath}`);
+  }
+
+  /**
+   * S-1: JWT `sub`와 워크스페이스 행을 묶는다. 최초 쓰기 시 `owner_user_id`가 비어 있으면 해당 사용자로 채운다.
+   */
+  getWorkspaceOwnerUserId(sessionId: string): string | null {
+    const row = this.db
+      .prepare("SELECT owner_user_id FROM workspace_session WHERE session_id = ?")
+      .get(sessionId) as { owner_user_id: string | null } | undefined;
+    if (!row) {
+      return null;
+    }
+    return row.owner_user_id ?? null;
+  }
+
+  assertWorkspaceSessionAccess(sessionId: string, userId: string): void {
+    const owner = this.getWorkspaceOwnerUserId(sessionId);
+    if (owner != null && owner !== userId) {
+      throw new ForbiddenException("이 워크스페이스에 접근할 수 없습니다.");
+    }
   }
 
   private ensureColumn(table: string, column: string, sqlType: string): void {
@@ -314,18 +337,21 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       retro: RetroReport[];
       sessionProfile: WorkspaceSessionProfile;
       projectState: ProjectStateRecord;
-    }
+    },
+    claimUserId?: string
   ): void {
+    const ownerVal = claimUserId === undefined ? null : claimUserId;
     this.db
       .prepare(
-        `INSERT INTO workspace_session (session_id, pr_snapshot, contract_state, retro_reports, session_profile, project_state, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workspace_session (session_id, pr_snapshot, contract_state, retro_reports, session_profile, project_state, owner_user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            pr_snapshot = excluded.pr_snapshot,
            contract_state = excluded.contract_state,
            retro_reports = excluded.retro_reports,
            session_profile = excluded.session_profile,
            project_state = excluded.project_state,
+           owner_user_id = COALESCE(workspace_session.owner_user_id, excluded.owner_user_id),
            updated_at = excluded.updated_at`
       )
       .run(
@@ -335,6 +361,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         JSON.stringify(data.retro),
         JSON.stringify(data.sessionProfile),
         JSON.stringify(data.projectState),
+        ownerVal,
         new Date().toISOString()
       );
   }
@@ -343,20 +370,26 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return this.getFull(sessionId).pr;
   }
 
-  savePrSnapshot(sessionId: string, pr: PrSnap): void {
+  savePrSnapshot(sessionId: string, pr: PrSnap, actingUserId?: string): void {
+    if (actingUserId) {
+      this.assertWorkspaceSessionAccess(sessionId, actingUserId);
+    }
     const f = this.getFull(sessionId);
     f.pr = pr;
-    this.setFull(sessionId, f);
+    this.setFull(sessionId, f, actingUserId);
   }
 
   getSessionProfile(sessionId: string): WorkspaceSessionProfile {
     return { ...this.getFull(sessionId).sessionProfile };
   }
 
-  saveSessionProfile(sessionId: string, profile: WorkspaceSessionProfile): void {
+  saveSessionProfile(sessionId: string, profile: WorkspaceSessionProfile, actingUserId?: string): void {
+    if (actingUserId) {
+      this.assertWorkspaceSessionAccess(sessionId, actingUserId);
+    }
     const f = this.getFull(sessionId);
     f.sessionProfile = { ...profile };
-    this.setFull(sessionId, f);
+    this.setFull(sessionId, f, actingUserId);
   }
 
   getProjectState(sessionId: string): ProjectStateRecord {
@@ -384,6 +417,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
 
   /**
    * push 웹훅 코드 델타 분석 결과를 SQLite ProjectState에 반영(O-4).
+   * Postgres SSOT 타임라인은 동일 sessionId로 발행되는 Integration 이벤트가
+   * `EventPublisherSqlite` → `IntegrationTimelineBridgeService` 경로로 `collaboration_events`에 미러될 때 맞춘다.
    * 해당 sessionId 행이 없으면 noop (학습 워크스페이스가 아직 만들어지지 않은 경우).
    */
   patchProjectStateCodeDelta(
@@ -409,13 +444,21 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     );
   }
 
-  saveProjectState(sessionId: string, state: ProjectStateRecord, expectedVersion?: number): { ok: true } | { ok: false; code: string } {
+  saveProjectState(
+    sessionId: string,
+    state: ProjectStateRecord,
+    expectedVersion?: number,
+    actingUserId?: string
+  ): { ok: true } | { ok: false; code: string } {
+    if (actingUserId) {
+      this.assertWorkspaceSessionAccess(sessionId, actingUserId);
+    }
     const f = this.getFull(sessionId);
     if (expectedVersion != null && f.projectState.stateVersion !== expectedVersion) {
       return { ok: false, code: "VERSION_CONFLICT" };
     }
     f.projectState = { ...state, stateVersion: state.stateVersion };
-    this.setFull(sessionId, f);
+    this.setFull(sessionId, f, actingUserId);
     return { ok: true };
   }
 
@@ -423,10 +466,13 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return this.getFull(sessionId).contract;
   }
 
-  saveContractState(sessionId: string, contract: ContractState): void {
+  saveContractState(sessionId: string, contract: ContractState, actingUserId?: string): void {
+    if (actingUserId) {
+      this.assertWorkspaceSessionAccess(sessionId, actingUserId);
+    }
     const f = this.getFull(sessionId);
     f.contract = contract;
-    this.setFull(sessionId, f);
+    this.setFull(sessionId, f, actingUserId);
   }
 
   isPromptSpecApproved(sessionId: string): boolean {
@@ -438,10 +484,13 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return this.getFull(sessionId).retro;
   }
 
-  saveRetroReports(sessionId: string, reports: RetroReport[]): void {
+  saveRetroReports(sessionId: string, reports: RetroReport[], actingUserId?: string): void {
+    if (actingUserId) {
+      this.assertWorkspaceSessionAccess(sessionId, actingUserId);
+    }
     const f = this.getFull(sessionId);
     f.retro = reports;
-    this.setFull(sessionId, f);
+    this.setFull(sessionId, f, actingUserId);
   }
 
   /** PR 스냅샷 stateVersion — 워크스페이스 SSOT와 이벤트 상관에 사용 */

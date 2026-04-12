@@ -25,6 +25,19 @@ export function computeRetroKpisFromEvents(events: IntegrationEvent[]): RetroKpi
   };
 }
 
+/** F-6: 회고 화면에 표시할 한 줄 근거(이벤트 타입 카운트 기반). */
+export function buildKpiBasisSummary(events: IntegrationEvent[]): string {
+  const fails = events.filter((e) => e.type === "VALIDATION_FAILED").length;
+  const passes = events.filter((e) => e.type === "VALIDATION_PASSED").length;
+  const loops = events.filter((e) => e.type === "VALIDATION_LOOP_DETECTED").length;
+  const prUpdates = events.filter((e) => e.type === "PR_UPDATED").length;
+  const merged = events.filter((e) => e.type === "PR_MERGED").length;
+  const vfsOk = events.filter((e) => e.type === "VFS_APPROVED").length;
+  return (
+    `최근 통합 이벤트 ${events.length}건 기준 — 검증 통과 ${passes}·실패 ${fails}·루프 ${loops}·PR 갱신 ${prUpdates}·머지 ${merged}·VFS 승인 ${vfsOk} (규칙 기반 KPI)`
+  );
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(n)));
 }

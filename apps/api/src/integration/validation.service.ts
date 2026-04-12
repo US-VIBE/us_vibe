@@ -31,41 +31,49 @@ export class ValidationService {
 
   async runLint(): Promise<{ passed: boolean; errors: LintError[] }> {
     const errors: LintError[] = [];
-    try {
-      execSync("npm run lint -w api", {
-        cwd: ROOT,
-        stdio: "pipe",
-        encoding: "utf-8",
-      });
-      this.logger.log("[lint] PASSED");
-      return { passed: true, errors };
-    } catch (err: unknown) {
-      const output = this.extractOutput(err);
-      const parsed = this.parseLintOutput(output);
-      this.logger.warn(`[lint] FAILED: ${parsed.length}개 오류`);
-      return { passed: false, errors: parsed };
+    let passed = true;
+    for (const ws of ["api", "web"] as const) {
+      try {
+        execSync(`npm run lint -w ${ws}`, {
+          cwd: ROOT,
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        this.logger.log(`[lint:${ws}] PASSED`);
+      } catch (err: unknown) {
+        passed = false;
+        const output = this.extractOutput(err);
+        const parsed = this.parseLintOutput(output);
+        this.logger.warn(`[lint:${ws}] FAILED: ${parsed.length}개 오류`);
+        errors.push(...parsed);
+      }
     }
+    return { passed, errors };
   }
 
   async runTypecheck(): Promise<{ passed: boolean; errors: string[] }> {
     const errors: string[] = [];
-    try {
-      execSync("npx tsc --noEmit -p apps/api/tsconfig.json", {
-        cwd: ROOT,
-        stdio: "pipe",
-        encoding: "utf-8",
-      });
-      this.logger.log("[typecheck] PASSED");
-      return { passed: true, errors };
-    } catch (err: unknown) {
-      const output = this.extractOutput(err);
-      const lines = output
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean);
-      this.logger.warn(`[typecheck] FAILED: ${lines.length}개 오류`);
-      return { passed: false, errors: lines };
+    let passed = true;
+    for (const proj of ["apps/api/tsconfig.json", "apps/web/tsconfig.json"] as const) {
+      try {
+        execSync(`npx tsc --noEmit -p ${proj}`, {
+          cwd: ROOT,
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        this.logger.log(`[typecheck:${proj}] PASSED`);
+      } catch (err: unknown) {
+        passed = false;
+        const output = this.extractOutput(err);
+        const lines = output
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+        this.logger.warn(`[typecheck:${proj}] FAILED: ${lines.length}개 오류`);
+        errors.push(...lines);
+      }
     }
+    return { passed, errors };
   }
 
   async validateContract(): Promise<{ passed: boolean; diffs: ContractDiff[] }> {
