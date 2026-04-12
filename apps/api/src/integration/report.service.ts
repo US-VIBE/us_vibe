@@ -112,7 +112,6 @@ export class ReportService {
       sections.push(`### OpenAPI 계약 불일치 상세\n${diffList}`);
     }
 
-    const core = [
     const shaShort =
       result.commitSha.length >= 7
         ? result.commitSha.slice(0, 7)
@@ -135,7 +134,7 @@ export class ReportService {
       "> 계약: 웹훅은 `specs/openapi/v1.yaml`과 `specs/api-contract.md` 엔드포인트 목록 교차 검사를 쓴다. `validate-api-contract.js`에 추가 규칙이 있으면 CI만 실패할 수 있다.",
     ].join("\n");
 
-    const body = [
+    const core = [
       "## 정적 검증 실패 리포트",
       "",
       "| 검증 항목 | 결과 |",
