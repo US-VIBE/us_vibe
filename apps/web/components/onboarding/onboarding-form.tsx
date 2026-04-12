@@ -9,13 +9,19 @@ import {
 } from "@/lib/offline-scenario-resolve";
 import { fetchScenarioCatalog, fetchScenarioResolve } from "@/lib/scenarios-api";
 import { createSoloBeSession, saveSession } from "@/lib/session-storage";
-import type { LearningSession } from "@/lib/session-types";
+import { SOLO_BE_ACTIVATED_AI_ROLES, type LearnerRole, type LearningSession } from "@/lib/session-types";
 
 type Props = {
   onSessionCreated: (session: LearningSession) => void;
 };
 
 const PLACEHOLDER_UUID = "00000000-0000-4000-8000-000000000000";
+
+const AI_ROLE_ORDER: string[] = [...SOLO_BE_ACTIVATED_AI_ROLES];
+
+function orderedAiRoles(roles: readonly string[]): string[] {
+  return [...roles].sort((a, b) => AI_ROLE_ORDER.indexOf(a) - AI_ROLE_ORDER.indexOf(b));
+}
 
 export function OnboardingForm({ onSessionCreated }: Props) {
   const [topic, setTopic] = useState("");
@@ -24,6 +30,12 @@ export function OnboardingForm({ onSessionCreated }: Props) {
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [learnerRole, setLearnerRole] = useState<LearnerRole>("backend_developer");
+  const [activeAiRoles, setActiveAiRoles] = useState<readonly string[]>(() => [...SOLO_BE_ACTIVATED_AI_ROLES]);
+
+  function toggleActiveAiRole(role: string) {
+    setActiveAiRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +63,11 @@ export function OnboardingForm({ onSessionCreated }: Props) {
     const t = topic.trim();
     if (!t) {
       setError("주제를 입력해 주세요.");
+      return;
+    }
+    const activatedAiRoleLabels = orderedAiRoles(activeAiRoles);
+    if (activatedAiRoleLabels.length === 0) {
+      setError("참여할 AI 역할을 하나 이상 선택해 주세요.");
       return;
     }
     setSubmitting(true);
@@ -86,7 +103,9 @@ export function OnboardingForm({ onSessionCreated }: Props) {
         scenarioId: resolvedScenarioId,
         briefingMarkdown: checklist,
         sprintDays,
-        proficiency
+        proficiency,
+        learnerRole,
+        activatedAiRoleLabels
       });
       saveSession(session);
       onSessionCreated(session);
@@ -108,10 +127,50 @@ export function OnboardingForm({ onSessionCreated }: Props) {
 
         <form className="mt-6 space-y-4" onSubmit={(ev) => void handleSubmit(ev)}>
           <div>
-            <label className="block text-xs font-medium text-slate-700">학습자 역할</label>
-            <p className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-              Backend Developer (고정)
+            <span className="block text-xs font-medium text-slate-700">학습자 역할 (구현 집중축)</span>
+            <p className="mt-1 text-xs text-slate-500">
+              PM·FE·QA 등 에이전트가 이 축에 맞춰 조언합니다. (예: 백엔드 선택 시 FE는 API 계약 위주로만 짚습니다.)
             </p>
+            <div className="mt-2 flex flex-wrap gap-3 text-sm">
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="learnerRole"
+                  checked={learnerRole === "backend_developer"}
+                  onChange={() => setLearnerRole("backend_developer")}
+                />
+                백엔드 (서버·API)
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="learnerRole"
+                  checked={learnerRole === "frontend_developer"}
+                  onChange={() => setLearnerRole("frontend_developer")}
+                />
+                프론트엔드 (UI·연동)
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <span className="block text-xs font-medium text-slate-700">참여 AI 역할군</span>
+            <p className="mt-1 text-xs text-slate-500">
+              채팅 순환 참여자와, 시스템 프롬프트에 주입되는 동료 맥락에 사용됩니다. 협업 문구 전체는
+              apps/web/lib/collaboration-chat-context.ts 한 파일에서 편집합니다.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+              {SOLO_BE_ACTIVATED_AI_ROLES.map((role) => (
+                <label key={role} className="inline-flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={activeAiRoles.includes(role)}
+                    onChange={() => toggleActiveAiRole(role)}
+                  />
+                  {role}
+                </label>
+              ))}
+            </div>
           </div>
 
           <div>

@@ -18,7 +18,7 @@ import {
   XCircle
 } from "lucide-react";
 import type { StoryTabId } from "@/lib/workspace-types";
-import type { LearningSession } from "@/lib/session-types";
+import { learnerFocusFromRole, type LearningSession } from "@/lib/session-types";
 import { proficiencyLabel } from "@/lib/proficiency-labels";
 import { fetchRoleGapSnapshot } from "@/lib/role-gap-service";
 import type { RoleGapSnapshot } from "@/lib/role-gap-types";
@@ -93,13 +93,17 @@ function buildInitialChatMessages(session: LearningSession, snap: RoleGapSnapsho
     }
   ];
   if (pm) {
+    const focus =
+      learnerFocusFromRole(session.learnerRole) === "backend"
+        ? "학습자는 백엔드 구현에 집중합니다. 다른 역할은 API·요구·검증 관점에서 보완합니다."
+        : "학습자는 프론트엔드 구현에 집중합니다. 다른 역할은 UX·계약 소비 관점에서 보완합니다.";
     out.push({
       id: "agent-kickoff",
       kind: "agent",
       agentId: pm.agentId,
       agentLabel: pm.role,
       displayName: pm.displayName,
-      text: `안녕하세요, ${pm.displayName}입니다. 주제「${session.topic}」, 목표「${session.goal}」로 이해했습니다. 스프린트 ${session.sprintDays}일 · ${proficiencyLabel(session.proficiency)} 기준으로 진행할게요.`
+      text: `안녕하세요, ${pm.displayName}입니다. 주제「${session.topic}」, 목표「${session.goal}」로 이해했습니다. 스프린트 ${session.sprintDays}일 · ${proficiencyLabel(session.proficiency)} 기준으로 진행할게요. ${focus}`
     });
   }
   return out;
