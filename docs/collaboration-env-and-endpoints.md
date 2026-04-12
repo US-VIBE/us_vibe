@@ -85,8 +85,8 @@
 | `WEBHOOK_VALIDATION_MAX_MS` | (선택) PR 정적 검증 `runAll` 동기 레이스 상한(ms). 기본 `28000`. 초과 시 **P-2:** 인메모리 큐로 이관 후 HTTP는 이미 200이면 백그라운드에서 계속 |
 | `WEBHOOK_VALIDATION_ASYNC` | (선택) `1`/`true`이면 PR 이벤트 발행 후 **큐**에서 검증·HTTP는 빨리 200 |
 | `INTEGRATION_BULLMQ` | (선택) `1`/`true`이고 **`REDIS_URL` 필수**이면 PR 검증을 **BullMQ**(`integration-pr-validate`)에 넣음. 없으면 인메모리 순차 큐 |
-| `WEBHOOK_ALLOWLIST` | (선택) 웹훅 허용 IP·IPv4 CIDR 쉼표 목록. 비어 있으면 제한 없음. `WEBHOOK_ALLOWED_CIDRS` 별칭 |
-| `WEBHOOK_TRUST_PROXY` | (선택) `1`/`true`이면 Express `trust proxy` — 프록시 뒤 `req.ip`/허용 목록이 의미 있게 동작 |
+| `WEBHOOK_ALLOWLIST` | (선택) 웹훅 허용 IP·IPv4 CIDR 쉼표 목록. 비어 있으면 제한 없음. `WEBHOOK_ALLOWED_CIDRS` 별칭. **리버스 프록시 뒤에서는 아래 3.2 절차로 IP가 GitHub 출구와 일치하는지 먼저 검증할 것** |
+| `WEBHOOK_TRUST_PROXY` | (선택) `1`/`true`이면 Express `trust proxy` — 프록시 뒤 `req.ip`/허용 목록이 의미 있게 동작. **동작·순서는 아래 3.2** |
 | `INTEGRATION_REDIS_PUBLISHER` | `1` 또는 `true`이고 `REDIS_URL`이 있으면 통합 이벤트를 Pub/Sub로도 발행 |
 | `INTEGRATION_REDIS_CHANNEL` | (선택) Pub/Sub 채널명. 기본 `integration:events` |
 | `INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS` | (선택) Pub/Sub `publish` 실패 시 **P-1** 동일 프로세스 재시도 횟수. 기본 `3` |
@@ -103,6 +103,80 @@
 | **스테이징·운영** | 제품 정책에 따라 (1) 시뮬 UUID 1:1 매핑 또는 (2) 인입 소스별 고정 비UUID + 통합 뷰는 SQLite만 | (2)일 때는 `unified-timeline`의 `postgresNote`를 사용자에게 노출하는 현 동작을 전제로 한다. |
 
 **정리:** “한 화면에서 GitHub 연동 + 시뮬 게이트 타임라인”을 보려면 **반드시 UUID 모드**로 맞춘다. 그 외에는 기본 `github-ingest`로도 인테그레이션 파이프 자체는 동작한다.
+
+### 3.2 GitHub 웹훅 운영: 리버스 프록시·IP 허용·서명 (단계별)
+
+GitHub이 `POST /webhooks/github`까지 올 때 **리버스 프록시·로드밸런서**를 거치면, 앱이 IP 허용 목록에 쓰는 값이 **소켓의 직접 연결 IP(LB)** 인지 **GitHub 훅 출구 IP** 인지에 따라 `WEBHOOK_ALLOWLIST` 의미가 달라진다.
+
+**구현 기준:** IP는 [`webhook.controller.ts`](../apps/api/src/integration/webhook.controller.ts)에서 `resolveWebhookClientIp` → `isClientIpAllowed`로 검사한다. [`webhook-client-ip.util.ts`](../apps/api/src/integration/webhook-client-ip.util.ts)에 정리되어 있다.
+
+- `WEBHOOK_TRUST_PROXY=1`이면 **`req.ip`** (Express가 `X-Forwarded-For` 등과 `trust proxy` 설정으로 계산한 클라이언트 IP).
+- 그렇지 않으면 **`req.socket.remoteAddress`** 만 사용한다.
+- `CF-Connecting-IP`, `True-Client-IP` 등은 **현재 코드에서 읽지 않는다.** 프록시에서 `X-Forwarded-For`로 맞추거나, 추후 앱에서 해당 헤더를 읽도록 확장해야 한다.
+
+[`main.ts`](../apps/api/src/main.ts)에서는 `WEBHOOK_TRUST_PROXY`가 켜질 때 Express에 **`set("trust proxy", true)`** 만 적용한다(신뢰 호프 수를 숫자로 제한하는 설정은 없음).
+
+```mermaid
+flowchart LR
+  GitHub --> LB[ReverseProxy_LB]
+  LB --> Nest[Nest_API]
+  LB -->|"X-Forwarded-For chain"| Nest
+  Nest -->|"trust on: req.ip"| Allow[WEBHOOK_ALLOWLIST]
+```
+
+#### 1단계: 트래픽 경로를 한 줄로 적기
+
+**목표:** GitHub이 어떤 공개 Payload URL로 POST하고, 그 앞에 LB·nginx·Cloudflare·Ingress 등이 **몇 단** 있는지 팀이 동의한 한 줄로 고정한다.
+
+**접근:** 저장소 Settings → Webhooks에서 URL을 확인하고, 인바운드 경로를 나열한다. 프록시 단 수는 이후 `X-Forwarded-For` 체인 길이와 `trust proxy` 판단에 쓴다.
+
+**완료 기준:** 다이어그램 또는 목록이 문서/런북에 있다.
+
+#### 2단계: 프록시에서 헤더 규칙 정하기
+
+**목표:** Nest가 검사에 쓰는 IP가 **GitHub 웹훅 메타 IP(출구)** 와 같아지게 한다.
+
+**접근:**
+
+- `WEBHOOK_TRUST_PROXY=1`일 때 앱은 **Express가 계산한 `req.ip`** 에 의존한다.
+- 제품 문서로 인바운드 **직접 소스(GitHub)** 가 `X-Forwarded-For` 체인에 어떻게 들어가는지 확인한다.
+- Cloudflare 등 **Origin으로만 `CF-Connecting-IP`가 의미 있는** 구성이면, 지금 코드만으로는 부족할 수 있으므로 **프록시에서 `X-Forwarded-For`로 통일**하는 편이 운영 난이도가 낮다.
+- nginx 개념 예: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` — 실제 지시어는 공식 문서로 검증한다.
+
+**완료 기준:** “Nest까지 도착했을 때 `req.ip`은 무엇을 의미하는가”가 문장으로 정의된다.
+
+#### 3단계: 스테이징·운영에서 실제 IP 확인
+
+**목표:** `WEBHOOK_ALLOWLIST`를 켜기 **전에** 로그에 보이는 IP가 [GitHub IP 주소 문서](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-githubs-ip-addresses)의 webhook·meta 범위와 맞는지 확인한다.
+
+**접근:**
+
+- `WEBHOOK_ALLOWLIST`는 비우거나 넓게 둔 채, 경로에 맞게 `WEBHOOK_TRUST_PROXY`를 켠 상태에서 테스트한다.
+- 거부 시 컨트롤러는 `Webhook IP 거부: ...` 로그를 남긴다. 허용 목록을 아직 쓰지 않을 때는 동일 방식으로 해석된 IP를 잠시 로그에 남기는 수단(임시 디버그)으로 검증할 수 있다(검증 후 제거).
+- GitHub **Recent Deliveries**로 재전송하거나 테스트 이벤트를 보내고, 로그 IP와 GitHub 공개 대역을 대조한다.
+
+| 증상 | 가능한 원인 |
+|------|-------------|
+| IP가 항상 LB·프록시 사설 대역 | `WEBHOOK_TRUST_PROXY` 꺼짐 또는 `X-Forwarded-For` 미전달 |
+| IP가 들쭉날쭉함 | 프록시가 여러 단인데 `trust proxy`와 체인 규칙이 안 맞음, 또는 비표준 헤더만 존재 |
+| IPv6만 보임 | 이 프로젝트의 허용 목록 매칭은 **IPv4 CIDR·단일 주소** 중심 — 필요 시 별도 정책·구현 검토 |
+
+**완료 기준:** 실제 훅으로 로그 IP가 GitHub 공개 훅·메타 대역과 일치함을 확인했다.
+
+#### 4단계: 환경 변수 권장 순서
+
+1. 인프라·`X-Forwarded-For`·`WEBHOOK_TRUST_PROXY`가 **3단계까지** 맞는지 검증한 뒤,
+2. `WEBHOOK_ALLOWLIST`(또는 `WEBHOOK_ALLOWED_CIDRS`)에 GitHub 훅 CIDR을 쉼표로 넣는다.
+
+**이유:** Allowlist만 먼저 켜면 프록시 IP만 보여 전부 403이 되거나, 잘못된 IP로 매칭될 수 있다. `WEBHOOK_TRUST_PROXY`만 켜고 헤더가 없으면 `req.ip`이 부정확해 allowlist와 조합할 때 위험하다.
+
+**`trust proxy: true`:** 모든 프록시를 신뢰하는 모드에 가깝다. 완화는 LB에서 불필요한 `X-Forwarded-For` 정리·덮어쓰기, Nest를 프라이빗 네트워크에만 노출, 또는 향후 Express에서 **신뢰 호프 수를 숫자로 제한**하는 코드 변경 등이다.
+
+#### 5단계: 서명·시크릿 (본체 인증)
+
+IP는 보조 방어이고, **본인 확인은 HMAC** 이다. GitHub 웹훅에 `GITHUB_WEBHOOK_SECRET`을 설정하고, 운영에서 서명 없이 열지 않으려면 `GITHUB_WEBHOOK_REQUIRE_SIGNATURE=1` 과 함께 시크릿을 필수로 둔다.
+
+**한 줄 요약:** 먼저 “GitHub → (N단 프록시) → Nest”와 **`X-Forwarded-For`가 `req.ip`에 GitHub 출구 IP로 반영되는지**를 로그로 증명한 뒤 `WEBHOOK_TRUST_PROXY`와 `WEBHOOK_ALLOWLIST`를 맞추고, 마지막에 시크릿·`GITHUB_WEBHOOK_REQUIRE_SIGNATURE`로 본 인증을 고정한다.
 
 ---
 
@@ -190,6 +264,7 @@ FE 모듈 매핑: [`docs/fe-web-integration.md`](fe-web-integration.md) §4.
 | 문서 | 내용 |
 |------|------|
 | [`fe-web-integration.md`](fe-web-integration.md) | FE ↔ Nest 연동 순서·`apiFetch`·테스트 |
+| (이 문서 **절 3.2**) | GitHub 웹훅: 리버스 프록시·`X-Forwarded-For`·`WEBHOOK_TRUST_PROXY`·`WEBHOOK_ALLOWLIST`·서명 순서 |
 | [`api/collaboration-endpoints-and-env.md`](api/collaboration-endpoints-and-env.md) | 시뮬 세션·인증·Postgres·Redis 상세 |
 | [`api/collaboration-endpoints-notion.md`](api/collaboration-endpoints-notion.md) | 노션 복사용 |
 | [`user-scenario-backend-solo-mvp.md`](user-scenario-backend-solo-mvp.md) | 시나리오·`/simulate` |

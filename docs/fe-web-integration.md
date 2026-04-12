@@ -45,7 +45,7 @@
 | `INTEGRATION_WEBHOOK_SESSION_ID` | 선택 | GitHub 웹훅 `sessionId` — **운영 모드 표는** [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) **§3.1** |
 | `GITHUB_*` | 선택 | 웹훅·리포트 연동 |
 | `INTEGRATION_REDIS_PUBLISHER` / `INTEGRATION_REDIS_CHANNEL` | 선택 | API 서버 — Pub/Sub 발행 시 아래 표 참고 |
-| `INTEGRATION_BULLMQ` / `WEBHOOK_ALLOWLIST` / `WEBHOOK_TRUST_PROXY` / `WEBHOOK_VALIDATION_ASYNC` 등 | 선택 | GitHub → `POST /webhooks/github`·검증 큐·IP 하드닝. **FE는 웹훅을 직접 부르지 않음** — 통합 타임라인·SSE 시점은 [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) §3 참고 |
+| `INTEGRATION_BULLMQ` / `WEBHOOK_ALLOWLIST` / `WEBHOOK_TRUST_PROXY` / `WEBHOOK_VALIDATION_ASYNC` 등 | 선택 | GitHub → `POST /webhooks/github`·검증 큐·IP 하드닝. **FE는 웹훅을 직접 부르지 않음** — 통합 타임라인·SSE는 [`collaboration-env-and-endpoints.md`](./collaboration-env-and-endpoints.md) §3, **리버스 프록시·IP 허용 순서는 같은 문서 절 3.2** |
 
 ---
 

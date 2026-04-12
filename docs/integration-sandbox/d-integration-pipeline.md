@@ -75,7 +75,7 @@ flowchart TD
 | 책임 | GitHub Webhook 수신, HMAC-SHA256 서명 검증(`GITHUB_WEBHOOK_SECRET`), 이벤트 타입 파싱 |
 | 처리 이벤트 | `pull_request` (opened/synchronize/closed), `push` |
 | 실패 처리 | 서명 불일치 시 `401` 반환, 지원하지 않는 이벤트는 `200` ACK 후 무시 |
-| 선택 하드닝 | `WEBHOOK_ALLOWLIST`(또는 `WEBHOOK_ALLOWED_CIDRS`)가 비어 있지 않으면 클라이언트 IP(또는 `WEBHOOK_TRUST_PROXY=1` 시 Express `trust proxy` + `req.ip`)가 목록·IPv4 CIDR에 없으면 `403`. 전역 레이트리밋·WAF는 인프라(B) 권장. |
+| 선택 하드닝 | `WEBHOOK_ALLOWLIST`(또는 `WEBHOOK_ALLOWED_CIDRS`)가 비어 있지 않으면 클라이언트 IP(또는 `WEBHOOK_TRUST_PROXY=1` 시 Express `trust proxy` + `req.ip`)가 목록·IPv4 CIDR에 없으면 `403`. 전역 레이트리밋·WAF는 인프라(B) 권장. **리버스 프록시 뒤에서는** [`collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) **절 3.2**(트래픽 경로·`X-Forwarded-For`·검증 순서·서명)를 따른다. |
 
 **서명 검증 흐름:**
 ```
