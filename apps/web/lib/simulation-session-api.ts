@@ -1,5 +1,5 @@
 import { apiFetch } from "./api-fetch";
-import type { LearningSession } from "./session-types";
+import type { LearnerRole, LearningSession } from "./session-types";
 
 const PROF_TO_SKILL: Record<LearningSession["proficiency"], string> = {
   beginner: "초급",
@@ -16,6 +16,9 @@ export async function createSimulationSessionForWorkspace(input: {
   topic: string;
   sprintDays: 1 | 3 | 7;
   proficiency: LearningSession["proficiency"];
+  learnerRole?: LearnerRole;
+  activeRoles?: string[];
+  scenarioId?: string | null;
 }): Promise<{ id: string } | null> {
   const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (!base) {
@@ -29,16 +32,27 @@ export async function createSimulationSessionForWorkspace(input: {
     return null;
   }
   try {
+    const learnerRoleLabel =
+      input.learnerRole === "frontend_developer" ? "Frontend Developer" : "Backend Developer";
+
+    const body: Record<string, unknown> = {
+      learnerRole: learnerRoleLabel,
+      learningGoal,
+      topic,
+      sprintDuration,
+      skillLevel
+    };
+    if (input.activeRoles?.length) {
+      body.activeRoles = input.activeRoles;
+    }
+    if (input.scenarioId != null && String(input.scenarioId).trim() !== "") {
+      body.scenarioId = String(input.scenarioId).trim();
+    }
+
     const res = await apiFetch(`${base}/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        learnerRole: "Backend Developer",
-        learningGoal,
-        topic,
-        sprintDuration,
-        skillLevel
-      })
+      body: JSON.stringify(body)
     });
     if (!res.ok) {
       return null;

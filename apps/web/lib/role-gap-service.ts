@@ -1,23 +1,35 @@
 import { apiFetch } from "./api-fetch";
-import type { LearningSession } from "./session-types";
+import { SOLO_BE_ACTIVATED_AI_ROLES, type LearningSession } from "./session-types";
 import type { InjectedAgent, RoleGapSnapshot } from "./role-gap-types";
 
+const MOCK_AGENT_POOL: InjectedAgent[] = [
+  { agentId: "agent_pm", role: "PM", displayName: "PM 에이전트" },
+  { agentId: "agent_fe", role: "FE", displayName: "FE 에이전트" },
+  { agentId: "agent_qa", role: "QA", displayName: "QA 에이전트" },
+  { agentId: "agent_senior", role: "Senior", displayName: "Senior 에이전트" },
+  { agentId: "agent_supervisor", role: "Supervisor", displayName: "Supervisor" },
+  { agentId: "agent_coach", role: "Coach", displayName: "Coach" }
+];
+
 function mockSoloBeSnapshot(session: LearningSession): RoleGapSnapshot {
+  const want = new Set(
+    (session.activatedAiRoleLabels?.length ? session.activatedAiRoleLabels : [...SOLO_BE_ACTIVATED_AI_ROLES]).map(
+      (l) => l.trim()
+    )
+  );
+  const injectedAgents = MOCK_AGENT_POOL.filter((a) => want.has(a.role));
+  const agents = injectedAgents.length ? injectedAgents : MOCK_AGENT_POOL;
+  const labels = agents.map((a) => a.role).join("·");
   return {
     sessionId: session.sessionId,
     stateVersion: 1,
-    humanRoleIds: ["be"],
-    humanRoleLabels: ["Backend Developer (학습자)"],
-    injectedAgents: [
-      { agentId: "agent_pm", role: "PM", displayName: "PM 에이전트" },
-      { agentId: "agent_fe", role: "FE", displayName: "FE 에이전트" },
-      { agentId: "agent_qa", role: "QA", displayName: "QA 에이전트" },
-      { agentId: "agent_senior", role: "Senior", displayName: "Senior 에이전트" },
-      { agentId: "agent_supervisor", role: "Supervisor", displayName: "Supervisor" },
-      { agentId: "agent_coach", role: "Coach", displayName: "Coach" }
-    ],
-    summary:
-      "백엔드 단독 팀: PM·FE·QA·Senior·Supervisor·Coach 에이전트가 결손을 보강해 채팅에 참여합니다."
+    humanRoleIds: session.learnerRole === "frontend_developer" ? ["fe"] : ["be"],
+    humanRoleLabels:
+      session.learnerRole === "frontend_developer"
+        ? ["Frontend Developer (학습자)"]
+        : ["Backend Developer (학습자)"],
+    injectedAgents: agents,
+    summary: `백엔드 단독 팀: ${labels} 에이전트가 세션 설정에 따라 채팅에 참여합니다.`
   };
 }
 

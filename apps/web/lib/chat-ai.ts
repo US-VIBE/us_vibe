@@ -46,7 +46,9 @@ export async function fetchAgentReply(input: {
           topic: session.topic,
           goal: session.goal,
           sprintDays: session.sprintDays,
-          proficiency: session.proficiency
+          proficiency: session.proficiency,
+          learnerRole: session.learnerRole,
+          activatedAiRoleLabels: [...session.activatedAiRoleLabels]
         },
         agent: {
           agentId: agent.agentId,

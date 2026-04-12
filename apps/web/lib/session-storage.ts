@@ -9,6 +9,10 @@ export function loadSession(): LearningSession | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as LearningSession;
     if (!parsed?.sessionId || !parsed?.topic) return null;
+    if (!parsed.learnerRole) parsed.learnerRole = "backend_developer";
+    if (!parsed.activatedAiRoleLabels?.length) {
+      parsed.activatedAiRoleLabels = [...SOLO_BE_ACTIVATED_AI_ROLES];
+    }
     return parsed;
   } catch {
     return null;
@@ -31,17 +35,22 @@ export function createSoloBeSession(input: {
   scenarioId?: string;
   briefingMarkdown?: string;
   sessionId?: string;
+  learnerRole?: LearningSession["learnerRole"];
+  /** 생략 시 SOLO_BE 전원 */
+  activatedAiRoleLabels?: readonly string[];
 }): LearningSession {
   return {
     sessionId: input.sessionId?.trim() || crypto.randomUUID(),
-    learnerRole: "backend_developer",
+    learnerRole: input.learnerRole ?? "backend_developer",
     goal: input.goal.trim(),
     topic: input.topic.trim(),
     scenarioId: input.scenarioId?.trim() || undefined,
     briefingMarkdown: input.briefingMarkdown?.trim() || undefined,
     sprintDays: input.sprintDays,
     proficiency: input.proficiency,
-    activatedAiRoleLabels: [...SOLO_BE_ACTIVATED_AI_ROLES],
+    activatedAiRoleLabels: input.activatedAiRoleLabels?.length
+      ? [...input.activatedAiRoleLabels]
+      : [...SOLO_BE_ACTIVATED_AI_ROLES],
     createdAt: new Date().toISOString()
   };
 }

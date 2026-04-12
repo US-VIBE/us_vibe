@@ -2,10 +2,18 @@
 
 export type Proficiency = "beginner" | "intermediate" | "advanced";
 
+/** 채팅·협업 톤: 학습자가 맡는 구현 축 */
+export type LearnerRole = "backend_developer" | "frontend_developer";
+
+/** API·프롬프트용: 학습자 집중 축 */
+export function learnerFocusFromRole(role: LearnerRole | undefined): "backend" | "frontend" {
+  return role === "frontend_developer" ? "frontend" : "backend";
+}
+
 export interface LearningSession {
   sessionId: string;
-  /** 문서: 학습자 역할은 Backend Developer 고정 */
-  learnerRole: "backend_developer";
+  /** 학습자가 맡는 구현 축 — 에이전트는 여기에 맞춰 ‘결손 보강’한다 */
+  learnerRole: LearnerRole;
   goal: string;
   topic: string;
   /** 시나리오 팩 id (예: login-mvp) */
