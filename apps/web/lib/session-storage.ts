@@ -28,12 +28,17 @@ export function createSoloBeSession(input: {
   topic: string;
   sprintDays: 1 | 3 | 7;
   proficiency: LearningSession["proficiency"];
+  scenarioId?: string;
+  briefingMarkdown?: string;
+  sessionId?: string;
 }): LearningSession {
   return {
-    sessionId: crypto.randomUUID(),
+    sessionId: input.sessionId?.trim() || crypto.randomUUID(),
     learnerRole: "backend_developer",
     goal: input.goal.trim(),
     topic: input.topic.trim(),
+    scenarioId: input.scenarioId?.trim() || undefined,
+    briefingMarkdown: input.briefingMarkdown?.trim() || undefined,
     sprintDays: input.sprintDays,
     proficiency: input.proficiency,
     activatedAiRoleLabels: [...SOLO_BE_ACTIVATED_AI_ROLES],

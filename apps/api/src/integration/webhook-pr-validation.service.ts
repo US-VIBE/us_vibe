@@ -11,6 +11,7 @@ import { ValidationService } from "./validation.service";
 import { ReportService } from "./report.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent, IntegrationEventType } from "../../../../specs/data-model/types";
+import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
 interface PrValidationJob {
@@ -228,13 +229,19 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     if (validationResult.passed) {
       await this.publishEvent("VALIDATION_PASSED", { validationResult });
     } else {
-      await this.publishEvent("VALIDATION_FAILED", { validationResult });
+      const fixGuide = LOGIN_MVP_PACK.prValidationFixGuide;
+      await this.publishEvent("VALIDATION_FAILED", {
+        validationResult,
+        fixRequestGuide: fixGuide,
+      });
 
       const repoOwner = process.env.GITHUB_REPO_OWNER ?? "";
       const repoName = process.env.GITHUB_REPO_NAME ?? "";
       if (repoOwner && repoName) {
-        const body =
-          this.reportService.buildValidationFailReport(validationResult);
+        const body = this.reportService.buildValidationFailReport(
+          validationResult,
+          { preambleMarkdown: fixGuide },
+        );
         await this.reportService.postPrComment(
           repoOwner,
           repoName,

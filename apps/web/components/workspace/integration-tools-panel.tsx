@@ -12,11 +12,15 @@ import {
 import { fetchUnifiedTimeline, type UnifiedTimelineData } from "@/lib/unified-timeline-api";
 import { startIntegrationSseStream } from "@/lib/integration-sse";
 import {
+  fetchInAppNotifications,
+  fetchIntegrationHints,
   fetchProjectState,
   fetchWorkspaceGates,
   patchProjectState,
   patchSessionHumanRoles,
   runWorkspaceDodVerify,
+  uploadWorkspaceArtifact,
+  type IntegrationHints,
   type ProjectStatePayload,
   type WorkspaceGates
 } from "@/lib/workspace-collab-api";
@@ -77,6 +81,14 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
   const [dodLoading, setDodLoading] = useState(false);
   const [dodResult, setDodResult] = useState<string | null>(null);
 
+  const [hints, setHints] = useState<IntegrationHints | null>(null);
+  const [hintsErr, setHintsErr] = useState<string | null>(null);
+  const [artifactBusy, setArtifactBusy] = useState(false);
+  const [artifactMsg, setArtifactMsg] = useState<string | null>(null);
+  const [notifs, setNotifs] = useState<
+    Array<{ id: string; title: string; body: string; kind: string; createdAt: string }>
+  >([]);
+
   const refreshGates = useCallback(() => {
     setGatesErr(null);
     fetchWorkspaceGates(apiBaseUrl, sid)
@@ -98,6 +110,22 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
     refreshGates();
     refreshProjectState();
   }, [refreshGates, refreshProjectState]);
+
+  useEffect(() => {
+    setHintsErr(null);
+    setArtifactMsg(null);
+    void fetchIntegrationHints(apiBaseUrl, sid)
+      .then((h) => {
+        setHints(h);
+      })
+      .catch((e: unknown) => {
+        setHints(null);
+        setHintsErr(e instanceof Error ? e.message : String(e));
+      });
+    void fetchInAppNotifications(apiBaseUrl, sid)
+      .then(setNotifs)
+      .catch(() => setNotifs([]));
+  }, [apiBaseUrl, sid]);
 
   useEffect(() => {
     if (!sseOn) {
@@ -250,6 +278,79 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
 
   return (
     <div className="mt-6 space-y-6">
+      <section className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4 text-sm">
+        <h3 className="font-semibold text-indigo-950">GitHub 웹훅 · 세션 ID · 산출물 업로드</h3>
+        <p className="mt-1 text-xs text-indigo-900/80">
+          API 환경에 아래 스니펫을 넣고 GitHub 웹훅을 연결하면 PR 검증 이벤트가 이 워크스페이스 세션과 같은{" "}
+          <code className="rounded bg-white px-1">sessionId</code>로 기록됩니다.
+        </p>
+        {hintsErr ? <p className="mt-2 text-xs text-red-600">{hintsErr}</p> : null}
+        {hints ? (
+          <div className="mt-2 space-y-2">
+            <p className="text-xs text-indigo-900">
+              <strong>INTEGRATION_WEBHOOK_SESSION_ID</strong> ={" "}
+              <code className="rounded bg-white px-1">{hints.integrationWebhookSessionId}</code>
+            </p>
+            <textarea
+              readOnly
+              className="h-28 w-full resize-y rounded border border-indigo-200 bg-white p-2 font-mono text-[11px] text-slate-800"
+              value={hints.envSnippet}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded bg-indigo-800 px-3 py-1 text-xs text-white"
+                onClick={() => {
+                  void navigator.clipboard.writeText(hints.envSnippet);
+                  setArtifactMsg("환경 스니펫을 클립보드에 복사했습니다.");
+                }}
+              >
+                스니펫 복사
+              </button>
+              <span className="text-xs text-indigo-800">{hints.note}</span>
+            </div>
+            <div className="mt-3 border-t border-indigo-200 pt-3">
+              <p className="text-xs font-medium text-indigo-950">ERD·스케치 (PNG/JPEG/WebP/PDF, 최대 5MB)</p>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,application/pdf"
+                className="mt-1 block text-xs"
+                disabled={artifactBusy}
+                onChange={(ev) => {
+                  const f = ev.target.files?.[0];
+                  if (!f) return;
+                  setArtifactBusy(true);
+                  setArtifactMsg(null);
+                  void uploadWorkspaceArtifact(apiBaseUrl, sid, f, "erd")
+                    .then(async () => {
+                      setArtifactMsg(`업로드 완료: ${f.name}`);
+                      const next = await fetchInAppNotifications(apiBaseUrl, sid);
+                      setNotifs(next);
+                    })
+                    .catch((e: unknown) => {
+                      setArtifactMsg(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => {
+                      setArtifactBusy(false);
+                      ev.target.value = "";
+                    });
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
+        {artifactMsg ? <p className="mt-2 text-xs text-slate-700">{artifactMsg}</p> : null}
+        {notifs.length > 0 ? (
+          <ul className="mt-3 max-h-32 space-y-1 overflow-y-auto border-t border-indigo-100 pt-2 text-xs text-slate-800">
+            {notifs.map((n) => (
+              <li key={n.id} className="rounded bg-white/80 px-2 py-1">
+                <strong>{n.title}</strong> — {n.body}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+
       <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
         <h3 className="font-semibold text-slate-800">PR 검증 캐시 · 루프 가드</h3>
         <p className="mt-1 text-xs text-slate-500">

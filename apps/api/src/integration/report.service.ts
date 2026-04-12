@@ -72,7 +72,10 @@ export class ReportService {
     return null;
   }
 
-  buildValidationFailReport(result: ValidationResult): string {
+  buildValidationFailReport(
+    result: ValidationResult,
+    options?: { preambleMarkdown?: string }
+  ): string {
     const { checks } = result;
 
     const rows = [
@@ -109,7 +112,7 @@ export class ReportService {
       sections.push(`### OpenAPI 계약 불일치 상세\n${diffList}`);
     }
 
-    const body = [
+    const core = [
       "## 정적 검증 실패 리포트",
       "",
       "| 검증 항목 | 결과 |",
@@ -122,7 +125,11 @@ export class ReportService {
       "> 도움이 필요하면 채팅 채널에서 QA Agent에게 질문하세요.",
     ].join("\n");
 
-    return body;
+    const preamble = options?.preambleMarkdown?.trim();
+    if (preamble) {
+      return `${preamble}\n\n---\n\n${core}`;
+    }
+    return core;
   }
 
   buildContractChangeReport(diffs: ContractDiff[]): string {

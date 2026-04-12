@@ -12,6 +12,10 @@ import {
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import { getMonorepoRoot } from "../monorepo-root";
+import {
+  buildBriefingPayload,
+  resolveScenario
+} from "../scenarios/scenario-registry";
 import { ScenarioRunnerService } from "./scenario-runner.service";
 
 @Injectable()
@@ -30,26 +34,58 @@ export class SessionsService {
     sprintDuration?: string;
     skillLevel?: string;
     activeRoles?: string[];
+    scenarioId?: string | null;
   }) {
-    const learningGoal = String(body.learningGoal ?? "").trim();
     const topic = String(body.topic ?? "").trim();
-    const sprintDuration = String(body.sprintDuration ?? "").trim();
-    const skillLevel = String(body.skillLevel ?? "").trim();
-    if (!learningGoal || !topic || !sprintDuration || !skillLevel) {
+    if (!topic) {
       throw new BadRequestException({
         code: "VALIDATION_SESSION_CONTEXT",
-        message:
-          "learningGoal, topic, sprintDuration, and skillLevel are required"
+        message: "topic is required"
       });
     }
-    return this.sessions.create({
+
+    const scenarioIdRaw =
+      body.scenarioId !== undefined && body.scenarioId !== null
+        ? String(body.scenarioId).trim()
+        : "";
+    const resolved = resolveScenario(topic, scenarioIdRaw || null);
+
+    const learningGoalIn = String(body.learningGoal ?? "").trim();
+    const sprintIn = String(body.sprintDuration ?? "").trim();
+    const skillIn = String(body.skillLevel ?? "").trim();
+    const useOverrides = learningGoalIn && sprintIn && skillIn;
+
+    const learningGoal = useOverrides
+      ? learningGoalIn
+      : resolved.pack.defaults.learningGoal;
+    const sprintDuration = useOverrides
+      ? sprintIn
+      : resolved.pack.defaults.sprintDuration;
+    const skillLevel = useOverrides ? skillIn : resolved.pack.defaults.skillLevel;
+    const activeRoles =
+      body.activeRoles?.length && body.activeRoles.length > 0
+        ? body.activeRoles
+        : resolved.pack.defaults.activeRoles;
+
+    const row = await this.sessions.create({
       learnerRole: body.learnerRole,
       learningGoal,
       topic,
+      scenarioId: resolved.pack.id,
       sprintDuration,
       skillLevel,
-      activeRoles: body.activeRoles
+      activeRoles
     });
+
+    const briefing = buildBriefingPayload(
+      resolved.pack,
+      topic,
+      row.id,
+      resolved.resolvedBy
+    );
+    await this.events.append("scenario_briefing_published", briefing, row.id);
+
+    return { ...row, briefing };
   }
 
   async getOne(id: string) {

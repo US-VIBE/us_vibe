@@ -27,6 +27,9 @@ export class SimulationSession {
   @Column({ type: "text" })
   topic!: string;
 
+  @Column({ name: "scenario_id", type: "varchar", length: 128, nullable: true })
+  scenarioId!: string | null;
+
   @Column({ name: "sprint_duration", type: "varchar", length: 64 })
   sprintDuration!: string;
 

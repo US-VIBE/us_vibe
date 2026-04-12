@@ -60,7 +60,7 @@ export interface CodeDeltaSummary {
 
 export type IntegrationEventPayload =
   | { prNumber: number; branch: string; author: string }
-  | { validationResult: ValidationResult }
+  | { validationResult: ValidationResult; fixRequestGuide?: string }
   | { prNumber: number; consecutiveFailures: number }
   | { codeDeltaSummary: CodeDeltaSummary }
   | { contractDiffs: ContractDiff[]; openApiVersion: string }

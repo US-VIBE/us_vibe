@@ -591,7 +591,9 @@ export function WorkspaceApp({
                   US Vibe · 협업 워크스페이스
                 </h1>
                 <p className="truncate text-xs text-slate-500">
-                  주제: {session.topic} · 세션 {session.sessionId.slice(0, 8)}…
+                  주제: {session.topic}
+                  {session.scenarioId ? ` · 시나리오 ${session.scenarioId}` : ""} · 세션{" "}
+                  {session.sessionId.slice(0, 8)}…
                   {roleGap != null ? ` · v${roleGap.stateVersion}` : null}
                   {authUser ? (
                     <>
@@ -655,6 +657,19 @@ export function WorkspaceApp({
           </nav>
         </div>
       </header>
+
+      {session.briefingMarkdown ? (
+        <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+          <details open className="mx-auto max-w-[1600px]">
+            <summary className="cursor-pointer text-sm font-medium text-emerald-900">
+              시나리오 브리핑 · 제출·검사·웹훅 안내
+            </summary>
+            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-xs leading-relaxed text-emerald-900">
+              {session.briefingMarkdown}
+            </pre>
+          </details>
+        </div>
+      ) : null}
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-0 lg:flex-row">
         {/* Chat */}

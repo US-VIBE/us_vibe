@@ -26,7 +26,7 @@ function mockReply(replier: InjectedAgent): string {
 }
 
 /**
- * 에이전트 답변: 서버 `POST /api/chat`(OpenAI 호환) 우선, 키 없거나 실패 시 목업.
+ * 에이전트 답변: 서버 `POST /api/chat` — CHAT_PROVIDER·키에 따라 Gemini/OpenAI(및 auto 폴백). 503만 목업.
  */
 export async function fetchAgentReply(input: {
   session: LearningSession;

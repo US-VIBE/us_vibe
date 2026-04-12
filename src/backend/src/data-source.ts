@@ -6,6 +6,7 @@ import { CreateUsers1739120500000 } from "./migrations/1739120500000-CreateUsers
 import { CreateCollaborationEvents1739120600000 } from "./migrations/1739120600000-CreateCollaborationEvents";
 import { CreateSimulationSessions1739120700000 } from "./migrations/1739120700000-CreateSimulationSessions";
 import { AddImplementationAckToSimulationSessions1739120800000 } from "./migrations/1739120800000-AddImplementationAckToSimulationSessions";
+import { AddScenarioIdToSimulationSessions1739120900000 } from "./migrations/1739120900000-AddScenarioIdToSimulationSessions";
 
 const defaultUrl =
   "postgres://postgres:postgres@127.0.0.1:5432/usvibe";
@@ -20,7 +21,8 @@ export function createDataSourceOptions(): DataSourceOptions {
       CreateUsers1739120500000,
       CreateCollaborationEvents1739120600000,
       CreateSimulationSessions1739120700000,
-      AddImplementationAckToSimulationSessions1739120800000
+      AddImplementationAckToSimulationSessions1739120800000,
+      AddScenarioIdToSimulationSessions1739120900000
     ],
     synchronize: false,
     logging: process.env.TYPEORM_LOGGING === "1"

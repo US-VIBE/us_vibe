@@ -1,14 +1,20 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Param,
   Patch,
   Post,
-  UseGuards
+  UploadedFile,
+  UseGuards,
+  UseInterceptors
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import { getScenarioPackById, renderGithubEnvSnippet } from "../scenarios/scenario-registry";
+import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
 import { buildRoleGapPayload } from "./role-gap.util";
 
 /**
@@ -47,6 +53,96 @@ export class SessionController {
     cur.humanRoleIds = ids;
     this.workspace.saveSessionProfile(sessionId, cur);
     return { ok: true, data: buildRoleGapPayload(sessionId, cur) };
+  }
+
+  @Get(":sessionId/integration-hints")
+  integrationHints(@Param("sessionId") sessionId: string) {
+    const pack = getScenarioPackById("login-mvp") ?? LOGIN_MVP_PACK;
+    const snippet = renderGithubEnvSnippet(pack, sessionId);
+    return {
+      ok: true,
+      data: {
+        integrationWebhookSessionId: sessionId,
+        envSnippet: snippet,
+        docPath: "docs/collaboration-env-and-endpoints.md",
+        note:
+          "GitHub 웹훅이 이 UUID를 sessionId로 쓰면 Postgres 타임라인·SQLite 통합 이벤트가 한 세션에 묶입니다."
+      }
+    };
+  }
+
+  @Get(":sessionId/in-app-notifications")
+  inAppNotifications(@Param("sessionId") sessionId: string) {
+    return {
+      ok: true,
+      data: this.workspace.listInAppNotifications(sessionId)
+    };
+  }
+
+  @Get(":sessionId/artifacts")
+  listArtifacts(@Param("sessionId") sessionId: string) {
+    return { ok: true, data: this.workspace.listSessionArtifacts(sessionId) };
+  }
+
+  @Post(":sessionId/artifacts")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 5 * 1024 * 1024 }
+    })
+  )
+  uploadArtifact(
+    @Param("sessionId") sessionId: string,
+    @UploadedFile()
+    file:
+      | {
+          buffer: Buffer;
+          mimetype: string;
+          originalname: string;
+        }
+      | undefined,
+    @Body() body: { kind?: string }
+  ) {
+    if (!file?.buffer) {
+      throw new BadRequestException({
+        ok: false,
+        code: "ARTIFACT_FILE_REQUIRED",
+        message: "multipart 필드 file 이 필요합니다."
+      });
+    }
+    const kind = typeof body?.kind === "string" && body.kind.trim() ? body.kind.trim() : "erd";
+    try {
+      const record = this.workspace.saveSessionArtifact({
+        sessionId,
+        kind,
+        originalName: file.originalname || "upload",
+        mime: file.mimetype,
+        buffer: file.buffer
+      });
+      this.workspace.appendInAppNotification({
+        sessionId,
+        kind: "artifact_uploaded",
+        title: "산출물 접수",
+        body: `${record.kind} (${record.originalName}) 루브릭 통과: ${record.rubric.passed ? "예" : "아니오"}`
+      });
+      return { ok: true, data: record };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "ARTIFACT_TOO_LARGE") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "파일이 5MB 한도를 초과했습니다."
+        });
+      }
+      if (msg === "ARTIFACT_MIME_NOT_ALLOWED") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "PNG, JPEG, WebP, PDF만 업로드할 수 있습니다."
+        });
+      }
+      throw e;
+    }
   }
 
   @Get(":sessionId/workspace-gates")
