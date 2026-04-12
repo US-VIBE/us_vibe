@@ -8,7 +8,7 @@
 |--------|-----------|-----------|
 | **학습 세션 UUID** | 브라우저(온보딩)·워크스페이스 전역 | 온보딩에서 `crypto.randomUUID()` 등으로 생성 ([`LearningSession`](../../apps/web/lib/session-types.ts)) |
 | **시뮬 세션 UUID** | Postgres `simulation_sessions` | `POST /sessions` 응답 `id` |
-| **웹훅 `sessionId`** | GitHub 페이로드 → API가 `IntegrationEvent.sessionId`로 기록 | 환경 변수 `INTEGRATION_WEBHOOK_SESSION_ID` 또는 웹훅 본문(구현에 따름) |
+| **웹훅 `sessionId`** | API가 `IntegrationEvent.sessionId`에 기록 | **현재 구현:** GitHub 본문에서 읽지 않음. 항상 환경 변수 `INTEGRATION_WEBHOOK_SESSION_ID`(미설정 시 `github-ingest`) — [`webhook.controller.ts`](../../apps/api/src/integration/webhook.controller.ts) |
 
 ## 권장 플로우 (풀스택 데모)
 
@@ -21,6 +21,11 @@
 
 - 온보딩 완료 시 **`POST /sessions`를 호출해 반환 `id`를 학습 세션에 주입**하는 API/BFF.
 - “시뮬만 쓰기” 모드에서 워크스페이스 없이 `sessionId`를 시뮬 id로만 쓰는 단순 경로.
+
+## FE 주의 (F-1)
+
+- 통합 이벤트 폴링·SSE·`unified-timeline` 쿼리의 `sessionId`는 **워크스페이스에 쓰는 학습 세션 UUID**와 같아야 한다.
+- GitHub 연동 이벤트를 같은 탭에서 보려면 **서버 `INTEGRATION_WEBHOOK_SESSION_ID`를 그 UUID로 맞출 것** — 그렇지 않으면 SQLite 스트림만 `github-ingest` 등으로 쌓이고 UI는 빈 목록이 될 수 있다. ([`fe-web-integration.md`](../fe-web-integration.md) §2·§4, [`collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3.1)
 
 ## 관련 API
 

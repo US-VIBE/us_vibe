@@ -4,11 +4,24 @@ import type { ValidationResult } from "@specs/data-model/types";
 
 export type { ValidationResult } from "@specs/data-model/types";
 
-function unwrap<T>(json: unknown): T | null {
+/** POST /api/sessions/.../contract/* 가 HTTP 200 + `{ ok: false, code, message }` 일 때 */
+export class ContractGateError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "ContractGateError";
+    this.code = code;
+  }
+}
+
+function readFailure(json: unknown): { code: string; message: string } | null {
   if (!json || typeof json !== "object") return null;
   const o = json as Record<string, unknown>;
-  if (o.ok === true && o.data !== undefined) return o.data as T;
-  return json as T;
+  if (o.ok !== false) return null;
+  const code = typeof o.code === "string" ? o.code : "UNKNOWN";
+  const message = typeof o.message === "string" ? o.message : "요청이 거부되었습니다.";
+  return { code, message };
 }
 
 const apiBase = () => process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
@@ -93,12 +106,29 @@ export async function validateOpenApiContract(
           body: JSON.stringify({ openApiYaml })
         }
       );
-      if (res.ok) {
-        const json: unknown = await res.json();
-        const data = unwrap<{ validationResult: ValidationResult }>(json);
-        if (data?.validationResult) return data.validationResult;
+      const json: unknown = await res.json().catch(() => null);
+      const fail = readFailure(json);
+      if (fail) {
+        throw new ContractGateError(fail.code, fail.message);
       }
+      if (res.ok && json && typeof json === "object") {
+        const o = json as Record<string, unknown>;
+        if (o.ok === true && o.data && typeof o.data === "object") {
+          const d = o.data as Record<string, unknown>;
+          if (d.validationResult && typeof d.validationResult === "object") {
+            return d.validationResult as ValidationResult;
+          }
+        }
+      }
+      if (!res.ok) {
+        throw new ContractGateError(
+          `HTTP_${res.status}`,
+          `검증 API 오류 (${res.status})`
+        );
+      }
+      throw new ContractGateError("INVALID_RESPONSE", "서버 응답 형식을 해석하지 못했습니다.");
     } catch (e) {
+      if (e instanceof ContractGateError) throw e;
       console.warn("[contract-gate] validate API 실패, 목업", e);
     }
   }
@@ -128,12 +158,26 @@ export async function approveContractGate(
           body: JSON.stringify({ validationPassed: true })
         }
       );
-      if (res.ok) {
-        const json: unknown = await res.json();
-        const data = unwrap<{ approved: boolean; approvedAt: string }>(json);
-        if (data?.approved) return data;
+      const json: unknown = await res.json().catch(() => null);
+      const fail = readFailure(json);
+      if (fail) {
+        throw new ContractGateError(fail.code, fail.message);
       }
+      if (res.ok && json && typeof json === "object") {
+        const o = json as Record<string, unknown>;
+        if (o.ok === true && o.data && typeof o.data === "object") {
+          const d = o.data as Record<string, unknown>;
+          if (d.approved === true && typeof d.approvedAt === "string") {
+            return { approved: true, approvedAt: d.approvedAt };
+          }
+        }
+      }
+      if (!res.ok) {
+        throw new ContractGateError(`HTTP_${res.status}`, `승인 API 오류 (${res.status})`);
+      }
+      throw new ContractGateError("INVALID_RESPONSE", "서버 응답 형식을 해석하지 못했습니다.");
     } catch (e) {
+      if (e instanceof ContractGateError) throw e;
       console.warn("[contract-gate] approve API 실패, 목업", e);
     }
   }

@@ -17,4 +17,6 @@ export interface RetroReport {
   createdAt: string;
   kpis: RetroKpi;
   nextActions: [string, string, string];
+  /** API 생성 리포트에만 채워질 수 있음 */
+  kpiBasis?: string;
 }

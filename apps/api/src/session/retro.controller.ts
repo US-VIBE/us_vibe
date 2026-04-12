@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Inject, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import { randomUUID } from "crypto";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import { EVENT_PUBLISHER, IEventPublisher } from "../integration/event-publisher.interface";
@@ -7,7 +8,7 @@ import {
   type RetroReport,
   WorkspacePersistenceService
 } from "../persistence/workspace-persistence.service";
-import { computeRetroKpisFromEvents } from "./retro-kpi.util";
+import { buildKpiBasisSummary, computeRetroKpisFromEvents } from "./retro-kpi.util";
 
 @Controller("api/sessions")
 @UseGuards(JwtAuthGuard)
@@ -18,7 +19,8 @@ export class RetroController {
   ) {}
 
   @Get(":sessionId/retro/reports")
-  list(@Param("sessionId") sessionId: string) {
+  list(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const reports = [...this.workspace.getRetroReports(sessionId)].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
@@ -28,16 +30,20 @@ export class RetroController {
   @Post(":sessionId/retro/generate")
   async generate(
     @Param("sessionId") sessionId: string,
-    @Body() _body: Record<string, unknown>
+    @Body() _body: Record<string, unknown>,
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const list = [...this.workspace.getRetroReports(sessionId)];
     const events = this.workspace.listIntegrationEvents(sessionId, 400);
     const kpis = computeRetroKpisFromEvents(events);
+    const kpiBasis = buildKpiBasisSummary(events);
     const report: RetroReport = {
       id: randomUUID(),
       sessionId,
       createdAt: new Date().toISOString(),
       kpis,
+      kpiBasis,
       nextActions: [
         "[API] 다음 스프린트: 계약 diff 알림을 킥오프 직후 공유",
         "[API] PR 코멘트에 우선순위 라벨 도입",
@@ -45,7 +51,7 @@ export class RetroController {
       ]
     };
     list.unshift(report);
-    this.workspace.saveRetroReports(sessionId, list);
+    this.workspace.saveRetroReports(sessionId, list, req.user.sub);
     const sv = this.workspace.getWorkspaceStateVersion(sessionId);
     const ev: IntegrationEvent = {
       type: "CODE_DELTA_ANALYZED",

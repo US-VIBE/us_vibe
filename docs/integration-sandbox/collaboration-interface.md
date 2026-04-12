@@ -18,7 +18,7 @@
 | **PostgreSQL** | `collaboration_events` — 에이전트/시뮬 타임라인 (`POST /collaboration/events`) | `GET /sessions/:id/timeline` |
 
 - 런타임 기본: [`EventPublisherSqlite`](../../apps/api/src/integration/event-publisher.sqlite.ts)가 통합 이벤트를 SQLite에 기록한다.
-- **Redis `REDIS_URL`**: JWT 폐기(denylist)용이다 ([`docs/backend/redis-usage.md`](../backend/redis-usage.md)). D용 Pub/Sub는 **별도 합의 후** 도입한다.
+- **Redis `REDIS_URL`**: JWT 폐기(denylist)용이다 ([`docs/backend/redis-usage.md`](../backend/redis-usage.md)). 동일 인스턴스에 **`INTEGRATION_REDIS_PUBLISHER=1`** 이면 통합 이벤트를 Pub/Sub 채널(`INTEGRATION_REDIS_CHANNEL`, 기본 `integration:events`)로도 중복 발행한다 ([`integration-redis-pubsub.service.ts`](../../apps/api/src/integration/integration-redis-pubsub.service.ts), P-1 재시도·백오프는 [`collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3).
 - 시뮬 세션 UUID와 웹훅을 묶으면, 선택적으로 Postgres에도 미러링한다 ([`event-vocabulary-map.md`](event-vocabulary-map.md), [`integration-timeline-bridge.service.ts`](../../apps/api/src/integration/integration-timeline-bridge.service.ts) 구현 참고).
 
 ---

@@ -46,6 +46,8 @@
 - `GET /api/sessions/{sessionId}/retro/reports` (Bearer JWT)
 - `POST /api/sessions/{sessionId}/retro/generate` (Bearer JWT)
 
+회고 리포트 항목(`data.reports[]`, `data.report`): `id`, `sessionId`, `createdAt`, `kpis` 4필드, `nextActions` 3개 문자열, 선택 **`kpiBasis`**(통합 이벤트 기반 규칙 KPI 한 줄 근거, F-6).
+
 ## Response Policy
 - success: `{ ok: boolean, service: string }` for `/health`
 - success: `{ ok: boolean, database: "up" | "down" }` for `/health/db`

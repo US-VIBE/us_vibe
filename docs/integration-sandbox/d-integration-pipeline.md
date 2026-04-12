@@ -116,11 +116,12 @@ flowchart TD
 
 #### ESLint Check
 - 대상: `apps/web/**/*.{ts,tsx}`, `apps/api/**/*.ts`
+- 실행: 웹훅 경로는 `npm run lint -w api` 후 `npm run lint -w web`([`validation.service.ts`](../../apps/api/src/integration/validation.service.ts)) — CI `lint` job과 동일 축
 - 설정: 루트 `.eslintrc.js` (D 관리)
 - 실패 기준: `error` 레벨 이상 1건 이상
 
 #### TypeScript Check
-- 명령어: `tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p apps/api/tsconfig.json`
+- 명령어: `npx tsc --noEmit -p apps/api/tsconfig.json` 및 `npx tsc --noEmit -p apps/web/tsconfig.json`(웹훅에서 순차 실행, CI `typecheck` job과 동일 축)
 - 실패 기준: 컴파일 에러 1건 이상
 
 #### OpenAPI Contract Validator
@@ -243,7 +244,7 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 - 동일 PR에 대해 검증 재시도 최대 **5회** (5회 초과 시 `VALIDATION_LOOP_DETECTED` 이벤트 발행 후 중단)
 - VFS 승인 없이 자동으로 실제 브랜치에 쓰는 동작 **금지**
 - Webhook 정적 검증: `WEBHOOK_VALIDATION_MAX_MS`(기본 28000ms) 상한으로 동기 레이스.
-- **P-2 (큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 큐에서 실행한다. **`INTEGRATION_BULLMQ=1`이고 `REDIS_URL`이 있으면** BullMQ 큐 `integration-pr-validate`(Redis 영속, 워커는 현재 API 프로세스 내 `concurrency: 1`). 그렇지 않으면 **인메모리 순차 큐**. 동기 모드에서 **타임아웃**이 나면 동일 큐로 이관한다(다중 인스턴스·중복 실행은 운영 시 jobId·GitHub 재전송 정책으로 완화).
+- **P-2 (큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 큐에서 실행한다. **`INTEGRATION_BULLMQ=1`이고 `REDIS_URL`이 있으면** BullMQ 큐 `integration-pr-validate`(Redis 영속, 워커는 현재 API 프로세스 내 `concurrency: 1`). **`INTEGRATION_BULLMQ=1`인데 `REDIS_URL`이 없으면** 경고 로그 후 **인메모리 순차 큐**만 사용한다. 동기 모드에서 **타임아웃**(`WEBHOOK_VALIDATION_MAX_MS`, 코드에서 `5000`~`120000`ms 클램프)이 나면 동일하게 BullMQ 또는 인메모리 큐로 이관한다. BullMQ 잡은 `jobId: pr-validate:{prNumber}:{commitSha}`로 중복 완화, **attempts 3·지수 백오프(초기 2000ms)** 가 적용된다(잡 `add` 옵션). 다중 인스턴스·중복 실행은 운영 시 GitHub 재전송 정책과 함께 고려한다.
 
 ---
 
@@ -264,3 +265,20 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | 동적 E2E 검증 (Playwright) | — | ✅ |
 | 완전 자동 로컬 IDE 동기화 | — | ✅ |
 | 실 Git 자동 머지/푸시 | — | ✅ |
+
+---
+
+## 7. O-4 핸드오프 (B: Postgres `ProjectState` · A 오케스트레이터)
+
+**D가 이미 하는 일 (SQLite):** `push` 웹훅 → [`CodeDeltaRunnerService`](../../apps/api/src/integration/code-delta-runner.service.ts) → `CODE_DELTA_ANALYZED` 이벤트 발행 → [`WorkspacePersistenceService.patchProjectStateCodeDelta`](../../apps/api/src/persistence/workspace-persistence.service.ts)로 **`workspace_session` 행이 있는 `sessionId`** 에만 `ProjectState.codeDeltaSummary`·`lastCodeDeltaAt`·`stateVersion` 갱신.
+
+**B에게 넘길 고정 인터페이스:**
+
+| 항목 | 값 |
+|------|-----|
+| 이벤트 타입 | `CODE_DELTA_ANALYZED` |
+| 페이로드 | `{ codeDeltaSummary: CodeDeltaSummary }` — [`specs/data-model/types.ts`](../../specs/data-model/types.ts) |
+| `sessionId` | `INTEGRATION_WEBHOOK_SESSION_ID` 또는 기본 `github-ingest` (다른 이벤트와 동일) |
+| Postgres 반영 | SQLite와 별개 — 단일 SSOT가 Postgres라면 `collaboration_events` 구독 또는 B 전용 동기화 잡으로 동일 페이로드를 반영하는 티켓은 **B 주도** |
+
+**A에게:** 오케스트레이터가 에이전트 컨텍스트에 넣을 `codeDeltaSummary` 소스가 SQLite `ProjectState`인지 Postgres인지 팀 SSOT 결정 후 한쪽으로만 읽도록 합의한다.

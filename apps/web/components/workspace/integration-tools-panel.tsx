@@ -9,7 +9,11 @@ import {
   resolveVfsDiffUrl,
   type VfsDiffPayload
 } from "@/lib/vfs-api";
-import { fetchUnifiedTimeline, type UnifiedTimelineData } from "@/lib/unified-timeline-api";
+import {
+  buildMergedTimelineRows,
+  fetchUnifiedTimeline,
+  type UnifiedTimelineData
+} from "@/lib/unified-timeline-api";
 import { startIntegrationSseStream } from "@/lib/integration-sse";
 import {
   fetchInAppNotifications,
@@ -40,13 +44,24 @@ const ROLE_OPTIONS: Array<{ id: string; label: string }> = [
 type Props = {
   apiBaseUrl: string;
   session: LearningSession;
+  /** 스토리3 PR 스냅샷 번호 — 설정 시 PR 검증 입력란 기본값·동기화 */
+  storyPrNumber?: number | null;
   /** Thought Stream(aside)에 한 줄 요약 전달 */
   onIntegrationSseLine?: (line: string) => void;
 };
 
-export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLine }: Props) {
+function prNumberToInput(n: number | null | undefined): string {
+  return n != null && Number.isFinite(n) ? String(n) : "";
+}
+
+export function IntegrationToolsPanel({
+  apiBaseUrl,
+  session,
+  storyPrNumber,
+  onIntegrationSseLine
+}: Props) {
   const sid = session.sessionId;
-  const [prInput, setPrInput] = useState("12");
+  const [prInput, setPrInput] = useState(() => prNumberToInput(storyPrNumber));
   const [valLoading, setValLoading] = useState(false);
   const [valErr, setValErr] = useState<string | null>(null);
   const [valData, setValData] = useState<Awaited<ReturnType<typeof fetchPrValidationStatus>>>(null);
@@ -60,7 +75,7 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
   const [uniErr, setUniErr] = useState<string | null>(null);
   const [uniSummary, setUniSummary] = useState<string | null>(null);
   const [uniData, setUniData] = useState<UnifiedTimelineData | null>(null);
-  const [uniTab, setUniTab] = useState<"sqlite" | "postgres">("sqlite");
+  const [uniTab, setUniTab] = useState<"merged" | "sqlite" | "postgres">("merged");
 
   const [sseOn, setSseOn] = useState(false);
   const [sseErr, setSseErr] = useState<string | null>(null);
@@ -126,6 +141,10 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
       .then(setNotifs)
       .catch(() => setNotifs([]));
   }, [apiBaseUrl, sid]);
+
+  useEffect(() => {
+    setPrInput(prNumberToInput(storyPrNumber));
+  }, [storyPrNumber]);
 
   useEffect(() => {
     if (!sseOn) {
@@ -356,7 +375,8 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
         <p className="mt-1 text-xs text-slate-500">
           <code className="rounded bg-white px-1">GET /api/validation/status/{"{pr}"}</code> —{" "}
           <code className="rounded bg-white px-1">validation</code>은 SQLite 캐시,
-          <code className="rounded bg-white px-1">consecutiveFailures</code>는 연속 실패 streak입니다.
+          <code className="rounded bg-white px-1">consecutiveFailures</code>는 연속 실패 streak입니다. 스토리3에서 PR을
+          제출하면 아래 번호가 스냅샷과 맞춰집니다.
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="text-xs text-slate-600">
@@ -439,7 +459,10 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
       <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
         <h3 className="font-semibold text-slate-800">통합 타임라인 (SQLite + Postgres)</h3>
         <p className="mt-1 text-xs text-slate-500">
-          <code className="rounded bg-white px-1">GET /api/integration/unified-timeline</code> · 탭으로 소스 분리 · 동기화는{" "}
+          <code className="rounded bg-white px-1">GET /api/integration/unified-timeline</code> ·{" "}
+          <strong className="font-medium text-slate-600">병합</strong> 탭은 SQLite{" "}
+          <code className="rounded bg-white px-1">timestamp</code>와 Postgres{" "}
+          <code className="rounded bg-white px-1">createdAt</code>을 합쳐 최신순으로 정렬합니다. 동기화는{" "}
           <code className="rounded bg-white px-1">docs/integration-sandbox/session-id-sync.md</code>
         </p>
         <button
@@ -454,7 +477,14 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
         {uniSummary ? <p className="mt-2 text-xs text-slate-700">{uniSummary}</p> : null}
         {uniData ? (
           <div className="mt-3">
-            <div className="flex gap-1 border-b border-slate-200 text-xs">
+            <div className="flex flex-wrap gap-1 border-b border-slate-200 text-xs">
+              <button
+                type="button"
+                className={`px-2 py-1 ${uniTab === "merged" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
+                onClick={() => setUniTab("merged")}
+              >
+                병합 ({uniData.integrationEvents.length + uniData.postgresTimeline.length})
+              </button>
               <button
                 type="button"
                 className={`px-2 py-1 ${uniTab === "sqlite" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
@@ -471,20 +501,40 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
               </button>
             </div>
             <ul className="mt-2 max-h-48 overflow-y-auto space-y-1 text-[11px] text-slate-700">
-              {uniTab === "sqlite"
-                ? uniData.integrationEvents.map((ev, i) => (
-                    <li key={`${ev.timestamp}-${ev.type}-${i}`} className="rounded border border-slate-100 bg-white px-2 py-1">
-                      <span className="font-medium">{ev.type}</span>{" "}
-                      <span className="text-slate-400">v{ev.stateVersion}</span>
-                      <div className="text-slate-400">{ev.timestamp}</div>
+              {uniTab === "merged"
+                ? buildMergedTimelineRows(uniData).map((row, i) => (
+                    <li
+                      key={`m-${row.source}-${row.sortMs}-${row.title}-${i}`}
+                      className="rounded border border-slate-100 bg-white px-2 py-1"
+                    >
+                      <span
+                        className={
+                          row.source === "sqlite"
+                            ? "mr-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
+                            : "mr-1 rounded bg-indigo-100 px-1 text-[10px] font-medium text-indigo-900"
+                        }
+                        title={row.source === "sqlite" ? "SQLite integration_events" : "Postgres collaboration_events"}
+                      >
+                        {row.source === "sqlite" ? "SQLite" : "PG"}
+                      </span>
+                      <span className="font-medium">{row.title}</span>
+                      <div className="text-slate-400">{row.detail}</div>
                     </li>
                   ))
-                : uniData.postgresTimeline.map((row) => (
-                    <li key={row.id} className="rounded border border-slate-100 bg-white px-2 py-1">
-                      <span className="font-medium">{row.eventType}</span>
-                      <div className="text-slate-400">{row.createdAt}</div>
-                    </li>
-                  ))}
+                : uniTab === "sqlite"
+                  ? uniData.integrationEvents.map((ev, i) => (
+                      <li key={`${ev.timestamp}-${ev.type}-${i}`} className="rounded border border-slate-100 bg-white px-2 py-1">
+                        <span className="font-medium">{ev.type}</span>{" "}
+                        <span className="text-slate-400">v{ev.stateVersion}</span>
+                        <div className="text-slate-400">{ev.timestamp}</div>
+                      </li>
+                    ))
+                  : uniData.postgresTimeline.map((row) => (
+                      <li key={row.id} className="rounded border border-slate-100 bg-white px-2 py-1">
+                        <span className="font-medium">{row.eventType}</span>
+                        <div className="text-slate-400">{row.createdAt}</div>
+                      </li>
+                    ))}
             </ul>
           </div>
         ) : null}
@@ -551,10 +601,21 @@ export function IntegrationToolsPanel({ apiBaseUrl, session, onIntegrationSseLin
         {roleSaveMsg ? <p className="mt-2 text-xs text-slate-600">{roleSaveMsg}</p> : null}
 
         <div className="mt-4 border-t border-slate-200 pt-3">
-          <p className="text-xs font-medium text-slate-600">DoD 자동 검증</p>
+          <p className="text-xs font-medium text-slate-600">DoD 자동 검증 (워크스페이스)</p>
+          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+            아래 버튼은 <code className="rounded bg-white px-0.5">POST /api/sessions/{"{id}"}/workspace-dod-verify</code>로,{" "}
+            저장소 계약 스크립트와 SQLite 워크스페이스 게이트만 검사합니다. 시뮬레이션 게이트 C로 넘기는{" "}
+            <code className="rounded bg-white px-0.5">POST /sessions/{"{id}"}/verify</code>와는 별도 동작입니다(제품상 두 액션
+            유지).
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            시뮬 검증은 API 베이스로{" "}
+            <code className="rounded bg-white px-0.5">{apiBaseUrl.replace(/\/$/, "")}/sessions/{sid}/verify</code> (또는
+            터미널/HTTP 클라이언트)에서 호출하세요.
+          </p>
           <button
             type="button"
-            className="mt-1 rounded border border-slate-300 bg-white px-3 py-1 text-xs"
+            className="mt-2 rounded border border-slate-300 bg-white px-3 py-1 text-xs"
             onClick={runDod}
             disabled={dodLoading}
           >
