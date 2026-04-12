@@ -39,6 +39,7 @@ import type { CommentReflectionStatus, PrReviewSnapshot } from "@/lib/pr-review-
 import { clearPrReview, loadPrReview, savePrReview } from "@/lib/pr-persist";
 import {
   approveContractGate,
+  ContractGateError,
   isValidationPassing,
   validateOpenApiContract
 } from "@/lib/contract-gate-service";
@@ -398,8 +399,12 @@ export function WorkspaceApp({
             : "OpenAPI 검증 실패 — 계약 승인은 검증 통과 후에만 가능합니다."
         }
       ]);
-    } catch {
-      setContractErr("검증 요청에 실패했습니다.");
+    } catch (e) {
+      if (e instanceof ContractGateError) {
+        setContractErr(`[${e.code}] ${e.message}`);
+      } else {
+        setContractErr("검증 요청에 실패했습니다.");
+      }
     } finally {
       setContractBusy(null);
     }
@@ -426,7 +431,11 @@ export function WorkspaceApp({
         }
       ]);
     } catch (e) {
-      setContractErr(e instanceof Error ? e.message : "승인에 실패했습니다.");
+      if (e instanceof ContractGateError) {
+        setContractErr(`[${e.code}] ${e.message}`);
+      } else {
+        setContractErr(e instanceof Error ? e.message : "승인에 실패했습니다.");
+      }
     } finally {
       setContractBusy(null);
     }
