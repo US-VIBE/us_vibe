@@ -1316,6 +1316,11 @@ export function WorkspaceApp({
                       <p className="text-[11px] text-slate-400">
                         ID <span className="font-mono">{sel.id.slice(0, 8)}…</span>
                       </p>
+                      <p className="text-xs leading-relaxed text-slate-600">
+                        <span className="font-medium text-slate-700">KPI 근거: </span>
+                        {sel.kpiBasis ??
+                          "(구 리포트) 통합 이벤트 기반 한 줄 근거가 없습니다. 새로 생성하면 표시됩니다."}
+                      </p>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         {(
                           [

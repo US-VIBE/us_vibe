@@ -28,7 +28,8 @@ function mockGenerateReport(session: LearningSession): RetroReport {
       `다음 스프린트: 계약 변경 시 Gate B 직후 알림 (목표: ${session.topic.slice(0, 24) || "주제"} 관련)`,
       "PR 코멘트에 우선순위·담당 역할 라벨을 붙이기",
       "OpenAPI 검증 실패 시 실패한 체크(린트/타입/계약)만 상단에 고정 표시"
-    ]
+    ],
+    kpiBasis: "목업: 통합 이벤트 스트림 없이 세션 id 시드로 KPI를 채웁니다."
   };
 }
 
