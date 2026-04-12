@@ -7,7 +7,7 @@
     "src/backend"
   ],
   "scripts": {
-    "db:up": "docker compose up -d postgres",
+    "db:up": "docker compose -p usvibe up -d postgres",
     "db:wait": "node scripts/wait-for-tcp.mjs 127.0.0.1 5432 postgres",
     "migrate": "npm run migration:run -w @us-vibe/backend",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",

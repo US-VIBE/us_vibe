@@ -51,6 +51,7 @@ export class SessionsController {
       sprintDuration?: string;
       skillLevel?: string;
       activeRoles?: string[];
+      scenarioId?: string | null;
     }
   ) {
     return this.sessions.create(body);

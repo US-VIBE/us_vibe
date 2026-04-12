@@ -15,6 +15,7 @@ export type CreateSimulationSessionInput = {
   learnerRole?: string;
   learningGoal: string;
   topic: string;
+  scenarioId?: string | null;
   sprintDuration: string;
   skillLevel: string;
   activeRoles?: string[];
@@ -28,6 +29,7 @@ export class SessionsDataService {
       learnerRole: (input.learnerRole ?? "Backend Developer").trim(),
       learningGoal: input.learningGoal.trim(),
       topic: input.topic.trim(),
+      scenarioId: input.scenarioId?.trim() ? input.scenarioId.trim() : null,
       sprintDuration: input.sprintDuration.trim(),
       skillLevel: input.skillLevel.trim(),
       activeRoles: input.activeRoles?.length

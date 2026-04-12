@@ -72,7 +72,10 @@ export class ReportService {
     return null;
   }
 
-  buildValidationFailReport(result: ValidationResult): string {
+  buildValidationFailReport(
+    result: ValidationResult,
+    options?: { preambleMarkdown?: string }
+  ): string {
     const { checks } = result;
 
     const rows = [
@@ -109,6 +112,7 @@ export class ReportService {
       sections.push(`### OpenAPI 계약 불일치 상세\n${diffList}`);
     }
 
+    const core = [
     const shaShort =
       result.commitSha.length >= 7
         ? result.commitSha.slice(0, 7)
@@ -145,7 +149,11 @@ export class ReportService {
       "> 수정 후 커밋을 추가하면 자동으로 재검증됩니다.",
     ].join("\n");
 
-    return body;
+    const preamble = options?.preambleMarkdown?.trim();
+    if (preamble) {
+      return `${preamble}\n\n---\n\n${core}`;
+    }
+    return core;
   }
 
   buildContractChangeReport(diffs: ContractDiff[]): string {

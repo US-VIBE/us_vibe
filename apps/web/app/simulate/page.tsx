@@ -11,6 +11,8 @@ type SimulationSession = {
   implementationAcknowledgedAt?: string | null;
   learningGoal?: string;
   topic?: string;
+  scenarioId?: string | null;
+  briefing?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
@@ -136,6 +138,28 @@ function chatBubble(ev: TimelineItem) {
       </div>
     );
   }
+  if (ev.eventType === "scenario_briefing_published") {
+    const md = String((ev.payload as { checklistMarkdown?: string }).checklistMarkdown ?? "");
+    return (
+      <div key={ev.id} style={{ marginBottom: 12, textAlign: "left" }}>
+        <div
+          style={{
+            display: "inline-block",
+            maxWidth: "92%",
+            padding: "10px 12px",
+            borderRadius: 12,
+            background: "#ecfdf5",
+            color: "#064e3b",
+            fontSize: 13,
+            textAlign: "left"
+          }}
+        >
+          <div style={{ fontSize: 11, color: "#047857", marginBottom: 4 }}>시나리오 브리핑 · {time}</div>
+          <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{md || JSON.stringify(ev.payload)}</pre>
+        </div>
+      </div>
+    );
+  }
   if (ev.eventType === "agent_reply") {
     const role = String((ev.payload as { role?: string }).role ?? "AI");
     const text = String((ev.payload as { text?: string }).text ?? JSON.stringify(ev.payload));
@@ -177,10 +201,11 @@ function chatBubble(ev: TimelineItem) {
 
 export default function SimulatePage() {
   const api = getApiBaseUrl();
-  const [learningGoal, setLearningGoal] = useState("실무 협업 경험");
+  const [learningGoal, setLearningGoal] = useState("");
   const [topic, setTopic] = useState("로그인/회원가입 API");
-  const [sprintDuration, setSprintDuration] = useState("1일");
-  const [skillLevel, setSkillLevel] = useState("중급");
+  const [scenarioId, setScenarioId] = useState("");
+  const [sprintDuration, setSprintDuration] = useState("");
+  const [skillLevel, setSkillLevel] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [session, setSession] = useState<SimulationSession | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
@@ -383,10 +408,15 @@ export default function SimulatePage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            learningGoal: learningGoal.trim(),
             topic: topic.trim(),
-            sprintDuration: sprintDuration.trim(),
-            skillLevel: skillLevel.trim()
+            scenarioId: scenarioId.trim() || undefined,
+            ...(learningGoal.trim() && sprintDuration.trim() && skillLevel.trim()
+              ? {
+                  learningGoal: learningGoal.trim(),
+                  sprintDuration: sprintDuration.trim(),
+                  skillLevel: skillLevel.trim()
+                }
+              : {})
           })
         });
         const row = await readJson<SimulationSession>(res);
@@ -709,7 +739,7 @@ export default function SimulatePage() {
           {stepRow(
             1,
             "세션 만들기",
-            "POST /sessions → Gate A",
+            "POST /sessions (주제 필수, 시나리오 팩 기본값) → Gate A",
             !step1Done && !busy,
             step1Done,
             null
@@ -763,17 +793,13 @@ export default function SimulatePage() {
             }}
           >
             <h2 style={{ marginTop: 0, fontSize: "1.1rem" }}>1) 세션 만들기</h2>
+            <p style={{ fontSize: 13, color: "#6b7280", marginTop: 0 }}>
+              주제만으로 생성하면 시나리오 팩이 목표·스프린트·숙련도를 채웁니다. 아래 세 칸을{" "}
+              <strong>모두</strong> 채우면 수동으로 덮어씁니다.
+            </p>
             <div style={{ display: "grid", gap: 10, maxWidth: 520 }}>
               <label>
-                학습 목표
-                <input
-                  style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
-                  value={learningGoal}
-                  onChange={(e) => setLearningGoal(e.target.value)}
-                />
-              </label>
-              <label>
-                주제
+                주제 (필수)
                 <input
                   style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
                   value={topic}
@@ -781,19 +807,39 @@ export default function SimulatePage() {
                 />
               </label>
               <label>
-                스프린트
+                시나리오 ID (선택, 예: login-mvp)
+                <input
+                  style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
+                  value={scenarioId}
+                  onChange={(e) => setScenarioId(e.target.value)}
+                  placeholder="비우면 주제 키워드로 자동"
+                />
+              </label>
+              <label>
+                학습 목표 (선택·수동 덮어쓰기)
+                <input
+                  style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
+                  value={learningGoal}
+                  onChange={(e) => setLearningGoal(e.target.value)}
+                  placeholder="비우면 팩 기본값"
+                />
+              </label>
+              <label>
+                스프린트 (선택)
                 <input
                   style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
                   value={sprintDuration}
                   onChange={(e) => setSprintDuration(e.target.value)}
+                  placeholder="예: 3일"
                 />
               </label>
               <label>
-                숙련도
+                숙련도 (선택)
                 <input
                   style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
                   value={skillLevel}
                   onChange={(e) => setSkillLevel(e.target.value)}
+                  placeholder="예: intermediate"
                 />
               </label>
             </div>
@@ -808,10 +854,15 @@ export default function SimulatePage() {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                      learningGoal: learningGoal.trim(),
                       topic: topic.trim(),
-                      sprintDuration: sprintDuration.trim(),
-                      skillLevel: skillLevel.trim()
+                      scenarioId: scenarioId.trim() || undefined,
+                      ...(learningGoal.trim() && sprintDuration.trim() && skillLevel.trim()
+                        ? {
+                            learningGoal: learningGoal.trim(),
+                            sprintDuration: sprintDuration.trim(),
+                            skillLevel: skillLevel.trim()
+                          }
+                        : {})
                     })
                   });
                   const row = await readJson<SimulationSession>(res);

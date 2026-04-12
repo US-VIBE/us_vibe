@@ -8,6 +8,10 @@ export interface LearningSession {
   learnerRole: "backend_developer";
   goal: string;
   topic: string;
+  /** 시나리오 팩 id (예: login-mvp) */
+  scenarioId?: string;
+  /** 온보딩 시 서버·오프라인 해석으로 채운 브리핑 Markdown */
+  briefingMarkdown?: string;
   sprintDays: 1 | 3 | 7;
   proficiency: Proficiency;
   /** §1 활성화 AI 역할군 */

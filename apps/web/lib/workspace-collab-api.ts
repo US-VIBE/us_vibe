@@ -102,6 +102,75 @@ export async function fetchProjectState(
   return body.data;
 }
 
+export type IntegrationHints = {
+  integrationWebhookSessionId: string;
+  envSnippet: string;
+  docPath: string;
+  note: string;
+};
+
+export async function fetchIntegrationHints(
+  apiBase: string,
+  sessionId: string
+): Promise<IntegrationHints> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/integration-hints`
+  );
+  if (!res.ok) {
+    throw new Error(`integration-hints ${res.status}`);
+  }
+  const body = (await res.json()) as { ok?: boolean; data?: IntegrationHints };
+  if (!body?.ok || !body.data) {
+    throw new Error("integration-hints invalid");
+  }
+  return body.data;
+}
+
+export async function uploadWorkspaceArtifact(
+  apiBase: string,
+  sessionId: string,
+  file: File,
+  kind?: string
+): Promise<unknown> {
+  const base = apiBase.replace(/\/$/, "");
+  const fd = new FormData();
+  fd.append("file", file);
+  if (kind) {
+    fd.append("kind", kind);
+  }
+  const res = await apiFetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/artifacts`, {
+    method: "POST",
+    body: fd
+  });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? `artifacts ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchInAppNotifications(
+  apiBase: string,
+  sessionId: string
+): Promise<Array<{ id: string; title: string; body: string; kind: string; createdAt: string }>> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/in-app-notifications`
+  );
+  if (!res.ok) {
+    throw new Error(`in-app-notifications ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    ok?: boolean;
+    data?: Array<{ id: string; title: string; body: string; kind: string; createdAt: string }>;
+  };
+  if (!body?.ok || !Array.isArray(body.data)) {
+    throw new Error("in-app-notifications invalid");
+  }
+  return body.data;
+}
+
 export async function patchProjectState(
   apiBase: string,
   sessionId: string,

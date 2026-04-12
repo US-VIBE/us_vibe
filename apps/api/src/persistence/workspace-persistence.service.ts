@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import Database from "better-sqlite3";
+import * as crypto from "node:crypto";
 import * as fs from "fs";
 import * as path from "path";
 import type {
@@ -84,6 +85,27 @@ export interface PrValidationStatusEnvelope {
   consecutiveFailures: number;
   /** SQLite 캐시가 있을 때만 */
   validation: PrValidationCacheRow | null;
+}
+
+export interface SessionArtifactRecord {
+  id: string;
+  sessionId: string;
+  kind: string;
+  originalName: string;
+  mime: string;
+  sizeBytes: number;
+  storedPath: string;
+  rubric: { passed: boolean; checks: { id: string; pass: boolean; note: string }[] };
+  createdAt: string;
+}
+
+export interface InAppNotificationRow {
+  id: string;
+  sessionId: string;
+  title: string;
+  body: string;
+  kind: string;
+  createdAt: string;
 }
 
 function idlePr(sessionId: string): PrSnap {
@@ -208,6 +230,29 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         streak INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS session_artifact (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        stored_path TEXT NOT NULL,
+        rubric_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_artifact_session
+        ON session_artifact (session_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS in_app_notification (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_in_app_notification_session
+        ON in_app_notification (session_id, created_at DESC);
     `);
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
@@ -565,6 +610,168 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       consecutiveFailures: this.getValidationFailureStreak(prNumber),
       validation: this.getPrValidationCacheRow(prNumber)
     };
+  }
+
+  private artifactStorageRoot(): string {
+    const raw = process.env.ARTIFACT_STORAGE_PATH?.trim();
+    if (raw) {
+      return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+    }
+    return path.join(process.cwd(), "data", "artifacts");
+  }
+
+  saveSessionArtifact(input: {
+    sessionId: string;
+    kind: string;
+    originalName: string;
+    mime: string;
+    buffer: Buffer;
+  }): SessionArtifactRecord {
+    const maxBytes = 5 * 1024 * 1024;
+    if (input.buffer.length > maxBytes) {
+      throw new Error("ARTIFACT_TOO_LARGE");
+    }
+    const allowed =
+      /^image\/(png|jpeg|webp)$|^application\/pdf$/i.test(input.mime) ||
+      input.mime === "image/jpg";
+    if (!allowed) {
+      throw new Error("ARTIFACT_MIME_NOT_ALLOWED");
+    }
+
+    const id = crypto.randomUUID();
+    const ext = path.extname(input.originalName) || (input.mime.includes("pdf") ? ".pdf" : ".bin");
+    const dir = path.join(this.artifactStorageRoot(), input.sessionId);
+    fs.mkdirSync(dir, { recursive: true });
+    const storedPath = path.join(dir, `${id}${ext}`);
+    fs.writeFileSync(storedPath, input.buffer);
+
+    const rubric = this.evaluateArtifactRubric(input.mime, input.buffer.length);
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.sessionId,
+        input.kind,
+        input.originalName,
+        input.mime,
+        input.buffer.length,
+        storedPath,
+        JSON.stringify(rubric),
+        createdAt
+      );
+    return {
+      id,
+      sessionId: input.sessionId,
+      kind: input.kind,
+      originalName: input.originalName,
+      mime: input.mime,
+      sizeBytes: input.buffer.length,
+      storedPath,
+      rubric,
+      createdAt
+    };
+  }
+
+  private evaluateArtifactRubric(
+    mime: string,
+    sizeBytes: number
+  ): SessionArtifactRecord["rubric"] {
+    const checks = [
+      {
+        id: "mime_ok",
+        pass: /image\/(png|jpeg|webp)|application\/pdf|image\/jpg/i.test(mime),
+        note: "PNG, JPEG, WebP, PDF만 허용됩니다."
+      },
+      {
+        id: "size_ok",
+        pass: sizeBytes > 0 && sizeBytes <= 5 * 1024 * 1024,
+        note: "0보다 크고 5MB 이하여야 합니다."
+      }
+    ];
+    return { passed: checks.every((c) => c.pass), checks };
+  }
+
+  listSessionArtifacts(sessionId: string): SessionArtifactRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at
+         FROM session_artifact WHERE session_id = ? ORDER BY created_at DESC`
+      )
+      .all(sessionId) as Array<{
+      id: string;
+      session_id: string;
+      kind: string;
+      original_name: string;
+      mime: string;
+      size_bytes: number;
+      stored_path: string;
+      rubric_json: string;
+      created_at: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      kind: r.kind,
+      originalName: r.original_name,
+      mime: r.mime,
+      sizeBytes: r.size_bytes,
+      storedPath: r.stored_path,
+      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
+      createdAt: r.created_at
+    }));
+  }
+
+  appendInAppNotification(input: {
+    sessionId: string;
+    kind: string;
+    title: string;
+    body: string;
+  }): InAppNotificationRow {
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO in_app_notification (id, session_id, kind, title, body, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.sessionId, input.kind, input.title, input.body, createdAt);
+    return {
+      id,
+      sessionId: input.sessionId,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      createdAt
+    };
+  }
+
+  listInAppNotifications(sessionId: string, limit = 50): InAppNotificationRow[] {
+    const cap = Math.min(Math.max(1, limit), 100);
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id, kind, title, body, created_at FROM in_app_notification
+         WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`
+      )
+      .all(sessionId, cap) as Array<{
+      id: string;
+      session_id: string;
+      kind: string;
+      title: string;
+      body: string;
+      created_at: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      kind: r.kind,
+      title: r.title,
+      body: r.body,
+      createdAt: r.created_at
+    }));
   }
 
   listIntegrationEvents(sessionId: string | undefined, limit: number): IntegrationEvent[] {

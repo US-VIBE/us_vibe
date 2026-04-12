@@ -14,6 +14,7 @@ import { ProjectStateController } from "./session/project-state.controller";
 import { RetroController } from "./session/retro.controller";
 import { SessionController } from "./session/session.controller";
 import { WorkspaceDodVerifyController } from "./session/workspace-dod-verify.controller";
+import { ScenariosController } from "./scenarios/scenarios.controller";
 import { SessionsModule } from "./sessions/sessions.module";
 
 @Module({
@@ -31,6 +32,7 @@ import { SessionsModule } from "./sessions/sessions.module";
   ],
   controllers: [
     AppController,
+    ScenariosController,
     SessionController,
     PrReviewController,
     ContractGateController,
