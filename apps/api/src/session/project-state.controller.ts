@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import type { ProjectStateRecord } from "../persistence/workspace-persistence.service";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
@@ -10,7 +11,8 @@ export class ProjectStateController {
   constructor(private readonly workspace: WorkspacePersistenceService) {}
 
   @Get(":sessionId/project-state")
-  getState(@Param("sessionId") sessionId: string) {
+  getState(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     return { ok: true, data: this.workspace.getProjectState(sessionId) };
   }
 
@@ -25,8 +27,10 @@ export class ProjectStateController {
       rejectedDecisions?: string[];
       openQuestions?: string[];
       activeSprintGoal?: string | null;
-    }
+    },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const cur = this.workspace.getProjectState(sessionId);
     const next: ProjectStateRecord = {
       stateVersion: cur.stateVersion,
@@ -55,7 +59,7 @@ export class ProjectStateController {
       };
     }
     next.stateVersion = cur.stateVersion + 1;
-    const r = this.workspace.saveProjectState(sessionId, next);
+    const r = this.workspace.saveProjectState(sessionId, next, undefined, req.user.sub);
     if (!r.ok) {
       return { ok: false, code: r.code, message: "저장 실패" };
     }

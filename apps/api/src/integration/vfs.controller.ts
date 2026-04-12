@@ -7,9 +7,11 @@ import {
   HttpCode,
   Logger,
   Inject,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import { VfsService, VfsFile, VfsSnapshot, VfsDiff } from "./vfs.service";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
@@ -43,7 +45,9 @@ export class VfsController {
   @HttpCode(201)
   async createSnapshot(
     @Body() dto: CreateSnapshotDto,
+    @Req() req: AuthedRequest,
   ): Promise<ApiResponse<{ snapshotId: string; diffUrl: string }>> {
+    this.workspace.assertWorkspaceSessionAccess(dto.sessionId, req.user.sub);
     const snapshot = await this.vfsService.createSnapshot(
       dto.files,
       dto.agentType,
@@ -75,7 +79,10 @@ export class VfsController {
   @Get("diff/:snapshotId")
   async getDiff(
     @Param("snapshotId") snapshotId: string,
+    @Req() req: AuthedRequest,
   ): Promise<ApiResponse<VfsDiff>> {
+    const snap = await this.vfsService.getSnapshot(snapshotId);
+    this.workspace.assertWorkspaceSessionAccess(snap.sessionId, req.user.sub);
     const diff = await this.vfsService.getDiff(snapshotId);
     return { ok: true, data: diff };
   }
@@ -84,7 +91,10 @@ export class VfsController {
   @HttpCode(200)
   async approveSnapshot(
     @Param("snapshotId") snapshotId: string,
+    @Req() req: AuthedRequest,
   ): Promise<ApiResponse<VfsSnapshot>> {
+    const pending = await this.vfsService.getSnapshot(snapshotId);
+    this.workspace.assertWorkspaceSessionAccess(pending.sessionId, req.user.sub);
     const snapshot = await this.vfsService.approveSnapshot(snapshotId);
 
     const event: IntegrationEvent = {

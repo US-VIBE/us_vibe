@@ -5,9 +5,11 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import { buildRoleGapPayload } from "./role-gap.util";
 
@@ -20,7 +22,8 @@ export class SessionController {
   constructor(private readonly workspace: WorkspacePersistenceService) {}
 
   @Get(":sessionId/role-gap")
-  roleGap(@Param("sessionId") sessionId: string) {
+  roleGap(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const profile = this.workspace.getSessionProfile(sessionId);
     return {
       ok: true,
@@ -31,8 +34,10 @@ export class SessionController {
   @Patch(":sessionId/session-profile")
   patchSessionProfile(
     @Param("sessionId") sessionId: string,
-    @Body() body: { humanRoleIds?: string[] }
+    @Body() body: { humanRoleIds?: string[] },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const ids = Array.isArray(body?.humanRoleIds)
       ? body.humanRoleIds.map((x) => String(x).toLowerCase().trim()).filter(Boolean)
       : [];
@@ -45,12 +50,13 @@ export class SessionController {
     }
     const cur = this.workspace.getSessionProfile(sessionId);
     cur.humanRoleIds = ids;
-    this.workspace.saveSessionProfile(sessionId, cur);
+    this.workspace.saveSessionProfile(sessionId, cur, req.user.sub);
     return { ok: true, data: buildRoleGapPayload(sessionId, cur) };
   }
 
   @Get(":sessionId/workspace-gates")
-  workspaceGates(@Param("sessionId") sessionId: string) {
+  workspaceGates(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const contract = this.workspace.getContractState(sessionId);
     const prof = this.workspace.getSessionProfile(sessionId);
     const pr = this.workspace.getPrSnapshot(sessionId);
@@ -71,8 +77,10 @@ export class SessionController {
   @Post(":sessionId/prompt-spec/convert")
   convertPrompt(
     @Param("sessionId") sessionId: string,
-    @Body() body: { promptText?: string }
+    @Body() body: { promptText?: string },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const promptText = typeof body?.promptText === "string" ? body.promptText : "";
     return {
       ok: true,
@@ -98,13 +106,15 @@ export class SessionController {
   @Post(":sessionId/prompt-spec/approve")
   approveSpec(
     @Param("sessionId") sessionId: string,
-    @Body() body: { specVersion?: number }
+    @Body() body: { specVersion?: number },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const specVersion = typeof body?.specVersion === "number" ? body.specVersion : 1;
     const prof = this.workspace.getSessionProfile(sessionId);
     prof.promptSpecApprovedVersion = specVersion;
     prof.promptSpecApprovedAt = new Date().toISOString();
-    this.workspace.saveSessionProfile(sessionId, prof);
+    this.workspace.saveSessionProfile(sessionId, prof, req.user.sub);
     return {
       ok: true,
       data: {

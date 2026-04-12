@@ -1,5 +1,6 @@
-import { Body, Controller, Inject, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import type { IntegrationEvent, ValidationResult } from "../../../../specs/data-model/types";
 import { EVENT_PUBLISHER, IEventPublisher } from "../integration/event-publisher.interface";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
@@ -66,13 +67,15 @@ export class ContractGateController {
   @Post(":sessionId/contract/validate")
   async validate(
     @Param("sessionId") sessionId: string,
-    @Body() body: { openApiYaml?: string }
+    @Body() body: { openApiYaml?: string },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const yaml = typeof body?.openApiYaml === "string" ? body.openApiYaml : "";
     const result = runValidation(yaml);
     const st = this.workspace.getContractState(sessionId);
     st.lastValidation = result;
-    this.workspace.saveContractState(sessionId, st);
+    this.workspace.saveContractState(sessionId, st, req.user.sub);
     const sv = this.workspace.getWorkspaceStateVersion(sessionId);
     const ev: IntegrationEvent = {
       type: result.passed ? "VALIDATION_PASSED" : "VALIDATION_FAILED",
@@ -87,7 +90,8 @@ export class ContractGateController {
   }
 
   @Post(":sessionId/contract/approve")
-  async approve(@Param("sessionId") sessionId: string) {
+  async approve(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     if (!this.workspace.isPromptSpecApproved(sessionId)) {
       return {
         ok: false,
@@ -104,7 +108,7 @@ export class ContractGateController {
       };
     }
     st.contractApproved = true;
-    this.workspace.saveContractState(sessionId, st);
+    this.workspace.saveContractState(sessionId, st, req.user.sub);
     const sv = this.workspace.getWorkspaceStateVersion(sessionId);
     const ev: IntegrationEvent = {
       type: "CONTRACT_CHANGED",

@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { AuthedRequest } from "../auth/authed-request";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import { EVENT_PUBLISHER, IEventPublisher } from "../integration/event-publisher.interface";
 import {
@@ -29,15 +30,18 @@ export class PrReviewController {
   ) {}
 
   @Get(":sessionId/pr-review")
-  get(@Param("sessionId") sessionId: string) {
+  get(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     return { ok: true, data: this.workspace.getPrSnapshot(sessionId) };
   }
 
   @Post(":sessionId/pr-review/submit")
   async submit(
     @Param("sessionId") sessionId: string,
-    @Body() body: { stateVersion?: number }
+    @Body() body: { stateVersion?: number },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const cur = this.workspace.getPrSnapshot(sessionId);
     if (body.stateVersion != null && body.stateVersion !== cur.stateVersion) {
       return { ok: false, code: "VERSION_CONFLICT", message: "stateVersion 불일치" };
@@ -70,7 +74,7 @@ export class PrReviewController {
         }
       ]
     };
-    this.workspace.savePrSnapshot(sessionId, next);
+    this.workspace.savePrSnapshot(sessionId, next, req.user.sub);
     const ev: IntegrationEvent = {
       type: "PR_OPENED",
       sessionId,
@@ -87,8 +91,10 @@ export class PrReviewController {
   async patchComment(
     @Param("sessionId") sessionId: string,
     @Param("commentId") commentId: string,
-    @Body() body: { status?: PrComment["status"]; stateVersion?: number }
+    @Body() body: { status?: PrComment["status"]; stateVersion?: number },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const cur = this.workspace.getPrSnapshot(sessionId);
     if (body.stateVersion != null && body.stateVersion !== cur.stateVersion) {
       return { ok: false, code: "VERSION_CONFLICT", message: "stateVersion 불일치" };
@@ -102,7 +108,7 @@ export class PrReviewController {
       stateVersion: cur.stateVersion + 1,
       comments: cur.comments.map((c) => (c.id === commentId ? { ...c, status: st } : c))
     };
-    this.workspace.savePrSnapshot(sessionId, next);
+    this.workspace.savePrSnapshot(sessionId, next, req.user.sub);
     const ev: IntegrationEvent = {
       type: "PR_UPDATED",
       sessionId,
@@ -118,8 +124,10 @@ export class PrReviewController {
   @Post(":sessionId/pr-review/re-review")
   async reReview(
     @Param("sessionId") sessionId: string,
-    @Body() body: { stateVersion?: number }
+    @Body() body: { stateVersion?: number },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const cur = this.workspace.getPrSnapshot(sessionId);
     if (body.stateVersion != null && body.stateVersion !== cur.stateVersion) {
       return { ok: false, code: "VERSION_CONFLICT", message: "stateVersion 불일치" };
@@ -149,7 +157,7 @@ export class PrReviewController {
         }
       ]
     };
-    this.workspace.savePrSnapshot(sessionId, next);
+    this.workspace.savePrSnapshot(sessionId, next, req.user.sub);
     const ev: IntegrationEvent = {
       type: "PR_UPDATED",
       sessionId,
@@ -165,8 +173,10 @@ export class PrReviewController {
   @Post(":sessionId/pr-review/final-approve")
   async finalApprove(
     @Param("sessionId") sessionId: string,
-    @Body() body: { stateVersion?: number }
+    @Body() body: { stateVersion?: number },
+    @Req() req: AuthedRequest
   ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const cur = this.workspace.getPrSnapshot(sessionId);
     if (body.stateVersion != null && body.stateVersion !== cur.stateVersion) {
       return { ok: false, code: "VERSION_CONFLICT", message: "stateVersion 불일치" };
@@ -179,7 +189,7 @@ export class PrReviewController {
       stateVersion: cur.stateVersion + 1,
       phase: "approved"
     };
-    this.workspace.savePrSnapshot(sessionId, next);
+    this.workspace.savePrSnapshot(sessionId, next, req.user.sub);
     const ev: IntegrationEvent = {
       type: "PR_MERGED",
       sessionId,
