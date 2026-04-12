@@ -10,6 +10,12 @@ export class AppController {
     private readonly revokedTokens: RevokedTokenStore
   ) {}
 
+  /** Some hosts probe `/` during bring-up; keep it cheap. */
+  @Get()
+  getRoot(): { ok: boolean } {
+    return { ok: true };
+  }
+
   @Get("health")
   getHealth(): { ok: boolean; service: string } {
     return { ok: true, service: `us-vibe-api+${getBackendPackageLabel()}` };

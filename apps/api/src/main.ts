@@ -13,6 +13,21 @@ function envFlagTrue(value: string | undefined): boolean {
   return v === "1" || v === "true";
 }
 
+function resolveListenPort(): number {
+  const parse = (raw: string | undefined): number | null => {
+    if (raw === undefined || raw.trim() === "") {
+      return null;
+    }
+    const n = Number.parseInt(raw.trim(), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  return (
+    parse(process.env.PORT) ??
+    parse(process.env.API_PORT) ??
+    (process.env.NODE_ENV === "production" ? 8080 : 4000)
+  );
+}
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   if (envFlagTrue(process.env.WEBHOOK_TRUST_PROXY)) {
@@ -26,9 +41,7 @@ async function bootstrap(): Promise<void> {
     origin: true,
     credentials: true
   });
-  const rawPort = process.env.PORT ?? process.env.API_PORT ?? "4000";
-  const port = Number.parseInt(rawPort, 10);
-  const listenPort = Number.isFinite(port) ? port : 4000;
+  const listenPort = resolveListenPort();
   await app.listen(listenPort, "0.0.0.0");
 }
 
