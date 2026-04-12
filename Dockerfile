@@ -12,5 +12,7 @@ RUN npm ci --include=dev \
   && npm run build -w api
 
 ENV NODE_ENV=production
-EXPOSE 4000
+# Railway (and many hosts) probe $PORT; default to 8080 when unset so ingress matches the app.
+ENV PORT=8080
+EXPOSE 8080
 CMD ["npm", "run", "start", "-w", "api"]
