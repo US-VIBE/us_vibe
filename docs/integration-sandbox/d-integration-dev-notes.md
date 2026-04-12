@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-04-12
+
+### S-2 스모크·문서 (D)
+
+- **문서:** [`collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md) §3.2에 **D 스모크(수동)** 표 추가(서명·IP·trust proxy 순서).
+- **O-4:** [`d-integration-pipeline.md`](d-integration-pipeline.md) §7에 B/A 핸드오프(이벤트·페이로드·sessionId) 고정.
+- **P-1/P-2:** BullMQ·`REDIS_URL`·`WEBHOOK_VALIDATION_MAX_MS` 클램프·잡 재시도를 [`d-integration-pipeline.md`](d-integration-pipeline.md)·[`collaboration-env-and-endpoints.md`](../collaboration-env-and-endpoints.md)·[`.env.example`](../../apps/api/.env.example)·[`collaboration-interface.md`](collaboration-interface.md)와 코드 정합.
+- **검증기:** 웹훅 정적 검증이 CI와 동일하게 **api+web** lint·tsc 실행([`validation.service.ts`](../../apps/api/src/integration/validation.service.ts)).
+
+**스모크(수동):** §3.2 표 1~4행 순서대로; 프록시 환경에서는 `Webhook IP 거부` 로그와 GitHub **Recent Deliveries** 응답 코드를 대조한다.
+
+---
+
 ## 2026-04-11
 
 ### D 다음 단계 계획 실행 (기능·문서)

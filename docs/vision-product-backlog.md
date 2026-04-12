@@ -30,7 +30,7 @@
 | O-1 | 세션 오케스트레이터·상태머신과 REST·정책 MD·런타임(LangGraph/Supervisor 등) 연결 | A, B | 호출 경로·세션 키·실패 시나리오 스펙 분리 |
 | O-2 | Role Gap 규칙·에이전트 프롬프트·금지 정책을 구현·버전 관리 가능 수준으로 고정 | A | `agents/**`와 설계서 동기화 |
 | O-3 | 학습·협업 KPI·회고를 오케스트레이터·이벤트 로그와 일관되게 묶기 | A, B | [retro-kpi.util.ts](../apps/api/src/session/retro-kpi.util.ts)와 정합 |
-| O-4 | `codeDeltaSummary` → `ProjectState` 필드·웹훅 파이프·쓰기 시점 정의 | B, D | SQLite `ProjectState` 병합·push 웹훅 (2026-04-10). Postgres SSOT·A 갱신은 후속 |
+| O-4 | `codeDeltaSummary` → `ProjectState` 필드·웹훅 파이프·쓰기 시점 정의 | B, D | SQLite `ProjectState` 병합·push 웹훅 (2026-04-10). B/A 핸드오프는 [`d-integration-pipeline.md`](integration-sandbox/d-integration-pipeline.md) §7 (2026-04-12) |
 | O-5 | 영향도 리포트·PM 스케줄러·샌드박스 미리보기 — MVP/V2 경계 재검토 후 티켓화 | A, B, D | 설계 본문 백로그로 쪼개기 |
 
 ---
@@ -55,7 +55,7 @@
 
 | ID | 항목 | 담당 | 문서 근거 |
 |----|------|------|-----------|
-| F-1 | 세션 ID: 시뮬 `POST /sessions`·학습 `sessionId`·웹훅 env 정렬 | B, C, D | [session-id-sync.md](integration-sandbox/session-id-sync.md) |
+| F-1 | 세션 ID: 시뮬 `POST /sessions`·학습 `sessionId`·웹훅 env 정렬 — 웹훅은 본문이 아닌 `INTEGRATION_WEBHOOK_SESSION_ID`만 사용함을 문서 고정(2026-04-12) | B, C, D | [session-id-sync.md](integration-sandbox/session-id-sync.md) |
 | F-2 | 통합 타임라인: 탭 외 병합 뷰·정렬·접근성 | C | [fe-web-integration.md](fe-web-integration.md) |
 | F-3 | DoD vs 시뮬 verify UX·복합 시나리오 | B, C | [fe-web-integration.md](fe-web-integration.md) §7.2 |
 | F-4 | PR 검증·스냅샷 `prNumber` 연동, 하드코딩 제거 | C | 스토리3·연동 패널 |
@@ -69,7 +69,7 @@
 | ID | 항목 | 담당 |
 |----|------|------|
 | S-1 | 학습 `sessionId`와 계정·테넌시 강결합 | B |
-| S-2 | 웹훅 서명·남용 방지·운영 하드닝 (`GITHUB_WEBHOOK_REQUIRE_SIGNATURE`, IP 허용 목록 `WEBHOOK_ALLOWLIST`, 2026-04-10~) | D, B |
+| S-2 | 웹훅 서명·남용 방지·운영 하드닝 (`GITHUB_WEBHOOK_REQUIRE_SIGNATURE`, IP 허용 목록 `WEBHOOK_ALLOWLIST`, 2026-04-10~) — §3.2 D 스모크 표·dev-notes(2026-04-12) | D, B |
 
 근거: [fe-web-integration.md](fe-web-integration.md) §7.
 
@@ -79,8 +79,8 @@
 
 | ID | 항목 | 담당 |
 |----|------|------|
-| P-1 | Redis Pub/Sub 실패 재시도·큐(예: BullMQ) — Pub/Sub: 동일 프로세스 재시도(2026-04-10); **PR 검증 영속 큐: `INTEGRATION_BULLMQ`(2026-04-10)** | D |
-| P-2 | 웹훅 정적 검증 비동기 큐·타임아웃 정책 — 인메모리 또는 **`INTEGRATION_BULLMQ`+Redis**(2026-04-10) | D |
+| P-1 | Redis Pub/Sub 실패 재시도·큐(예: BullMQ) — Pub/Sub: 동일 프로세스 재시도(2026-04-10); **PR 검증 영속 큐: `INTEGRATION_BULLMQ`(2026-04-10)** — 문서·코드 정합·`REDIS_URL` 없을 때 인메모리 폴백 명시(2026-04-12) | D |
+| P-2 | 웹훅 정적 검증 비동기 큐·타임아웃 정책 — 인메모리 또는 **`INTEGRATION_BULLMQ`+Redis**(2026-04-10) — `WEBHOOK_VALIDATION_MAX_MS` 클램프·BullMQ 잡 attempts/backoff 문서화(2026-04-12) | D |
 
 근거: [d-integration-pipeline.md](integration-sandbox/d-integration-pipeline.md).
 
