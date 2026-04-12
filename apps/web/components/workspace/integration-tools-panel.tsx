@@ -141,6 +141,8 @@ export function IntegrationToolsPanel({
       .then(setNotifs)
       .catch(() => setNotifs([]));
   }, [apiBaseUrl, sid]);
+
+  useEffect(() => {
     setPrInput(prNumberToInput(storyPrNumber));
   }, [storyPrNumber]);
 
