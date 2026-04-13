@@ -10,6 +10,7 @@
 - `GET /health/webhook-security`
 - `POST /auth/register`
 - `POST /auth/login`
+- `POST /api/auth/refresh` (HttpOnly refresh cookie; issues new access token)
 - `POST /auth/logout` (Bearer JWT)
 - `GET /users/me` (Bearer JWT)
 - `POST /collaboration/events`
@@ -24,7 +25,7 @@
 - `POST /webhooks/github`
 - `GET /api/integration/events` (Bearer JWT)
 - `GET /api/integration/unified-timeline` (Bearer JWT; query `sessionId`, `limit`)
-- `GET /api/integration/stream` (Bearer JWT; SSE `text/event-stream`, 브라우저는 fetch+Authorization 권장)
+- `GET /api/integration/stream` (Bearer JWT; query `sessionId` 필수; SSE `text/event-stream`, 브라우저는 fetch+Authorization 권장)
 - `GET /api/validation/status/{prNumber}` (Bearer JWT)
 - `POST /api/vfs/snapshot` (Bearer JWT)
 - `GET /api/vfs/diff/{snapshotId}` (Bearer JWT)
@@ -56,8 +57,9 @@
 - success: `{ ok: boolean, service: string }` for `/health`
 - success: `{ ok: boolean, database: "up" | "down" }` for `/health/db`
 - success: `{ ok: boolean, redis: "disabled" | "up" | "down" }` for `/health/redis`
-- success: `{ ok: true, github: { signatureVerification, secretConfigured, allowlistRuleCount, trustProxyLikely } }` for `/health/webhook-security` (비밀값 미노출, S-2 스모크)
-- success: `{ accessToken: string }` for `/auth/register` (201) and `/auth/login` (200)
+- success: `{ ok: true, github: { signatureVerification, secretConfigured, allowlistRuleCount, trustProxyLikely } }` for `/health/webhook-security` (비밀값 미노출, S-2 스모크; 프로덕션에서는 `EXPOSE_WEBHOOK_SECURITY_HEALTH=1` 없으면 404)
+- success: `{ accessToken: string, refreshToken: string }` for `/auth/register` (201) and `/auth/login` (200); HttpOnly refresh cookie는 동일 호스트 API에 대해 설정됨
+- success: `{ ok: true, data: { accessToken, user } }` for `POST /api/auth/refresh` (200, refresh cookie 회전)
 - success: `{ ok: true }` for `/auth/logout`
 - success: `{ id, email, createdAt }` for `/users/me` (ISO 8601 `createdAt`)
 - success: `{ id, createdAt }` for `/collaboration/events` (201)
@@ -68,14 +70,14 @@
 - success: `{ ok: true, data: { events } }` for GET /api/integration/events (IntegrationEvent[], newest first)
 - success: `{ ok: true, data: PrValidationStatusEnvelope | null }` for GET /api/validation/status/{prNumber} — `data`가 null이면 path의 PR 번호가 숫자가 아님. 본문은 `{ prNumber, consecutiveFailures, validation: { prNumber, result, checkedAt } | null }` (`validation` null = SQLite 캐시 행 없음, streak만 의미 있을 수 있음)
 - success: `{ ok: true, data: { sessionId, integrationEvents, postgresTimeline, postgresNote, bridgeHint } }` for GET /api/integration/unified-timeline — `integrationEvents`: newest-first `IntegrationEvent[]`; `postgresTimeline`: `CollaborationEventTimelineItem[]` (`id`, `eventType`, `payload`, `sessionId`, `createdAt`), `createdAt` ascending (same order as GET `/sessions/{id}/timeline`)
-- success: SSE for GET /api/integration/stream (Redis 구독 시 통합 이벤트 JSON 문자열, 없으면 heartbeat)
+- success: SSE for GET /api/integration/stream?sessionId=… (Redis 구독 시 해당 세션의 통합 이벤트 JSON 문자열만, 없으면 heartbeat)
 - success: `{ ok: true, data: { snapshotId, diffUrl } }` (201) for POST /api/vfs/snapshot; `{ ok: true, data: VfsDiff }` for GET /api/vfs/diff; `{ ok: true, data: VfsSnapshot }` for POST /api/vfs/approve; `{ ok: true, data: [...] }` for GET /api/vfs/session/{sessionId}/snapshot-index (SQLite 메타 인덱스, 본문은 vfs-store)
 - success: `{ ok: true, data: IntegrationHints }` for GET /api/sessions/{sessionId}/integration-hints (`recommendedServerEnvLine`, `bffSyncNote`, `simulateOnlyPath`, `envSnippet` 등)
 - success: `{ ok: true, data: OrchestratorContext }` for GET /api/sessions/{sessionId}/orchestrator-context (roleGap, workspaceGates, 정책錨 등 O-1 집계)
 - error: `{ code: string, message: string }`
 
 ## Auth error codes (non-exhaustive)
-- `EMAIL_TAKEN`, `AUTH_INVALID_CREDENTIALS`, `AUTH_MISSING_TOKEN`, `AUTH_INVALID_TOKEN`, `TOKEN_REVOKED`, `USER_NOT_FOUND`
+- `EMAIL_TAKEN`, `AUTH_INVALID_CREDENTIALS`, `AUTH_MISSING_TOKEN`, `AUTH_INVALID_TOKEN`, `AUTH_MISSING_REFRESH`, `AUTH_INVALID_REFRESH`, `TOKEN_REVOKED`, `USER_NOT_FOUND`
 - `VALIDATION_EMAIL`, `VALIDATION_PASSWORD`, `VALIDATION_EVENT_TYPE`
 - `IMPLEMENTATION_NOT_ACKNOWLEDGED`, `ACK_WRONG_GATE`, `FINISH_WRONG_GATE`
 - `PROMPT_SPEC_NOT_APPROVED`, `CONTRACT_INVALID`, `VERSION_CONFLICT` (워크스페이스 project-state·PR 스냅샷)

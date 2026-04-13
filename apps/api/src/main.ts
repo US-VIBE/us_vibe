@@ -4,7 +4,7 @@ import { config } from "dotenv";
 config({ path: path.resolve(__dirname, "../../../.env") });
 
 import "reflect-metadata";
-import { Logger } from "@nestjs/common";
+import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface";
 import helmet from "helmet";
@@ -47,9 +47,22 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger("Bootstrap");
   validateProductionEnvironment();
   const app = await NestFactory.create(AppModule, { rawBody: true });
-  if (process.env.NODE_ENV === "production") {
-    app.use(helmet());
-  }
+  const helmetOptions =
+    process.env.NODE_ENV === "production"
+      ? undefined
+      : {
+          contentSecurityPolicy: false,
+          crossOriginEmbedderPolicy: false
+        };
+  app.use(helmet(helmetOptions));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: false,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true }
+    })
+  );
   const trustProxy =
     envFlagTrue(process.env.WEBHOOK_TRUST_PROXY) ||
     Boolean(process.env.RAILWAY_ENVIRONMENT?.trim());
