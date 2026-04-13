@@ -19,7 +19,7 @@
 | `VALIDATION_LOOP_DETECTED` | `contract_violation` | `prNumber`, `consecutiveFailures`(연속 실패 streak) |
 | `VALIDATION_PASSED` | `review_passed` | 동일 |
 | `PR_OPENED`, `PR_UPDATED`, `PR_MERGED` | `supervisor_route` | PR 메타(`prNumber`, `branch`, `author`) |
-| `CODE_DELTA_ANALYZED` | `supervisor_route` | `codeDeltaSummary` |
+| `CODE_DELTA_ANALYZED` | `code_delta_analyzed` | `codeDeltaSummary` + 봉투 필드(O-4: A가 Postgres만 구독할 때 필터 용이) |
 | `VFS_SNAPSHOT_CREATED`, `VFS_APPROVED` | `agent_reply` | VFS 페이로드 |
 | `CONTRACT_CHANGED` | `agent_reply` | 계약 diff 등 |
 

@@ -81,7 +81,7 @@ CORS는 API에서 활성화되어 있습니다.
 
 ## 협업 이벤트 `eventType` 권장 값
 
-에이전트·오케스트레이터 간 맞춤용 예약 값은 [`docs/backend/agent-event-log.md`](../backend/agent-event-log.md) 표를 따릅니다 (`supervisor_route`, `agent_reply`, `contract_violation`, `user_message` 등).
+에이전트·오케스트레이터 간 맞춤용 예약 값은 [`docs/backend/agent-event-log.md`](../backend/agent-event-log.md) 표를 따릅니다 (`supervisor_route`, `code_delta_analyzed`, `agent_reply`, `contract_violation`, `user_message` 등).
 
 ---
 

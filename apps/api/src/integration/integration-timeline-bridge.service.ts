@@ -60,9 +60,13 @@ export class IntegrationTimelineBridgeService {
       case "PR_OPENED":
       case "PR_UPDATED":
       case "PR_MERGED":
-      case "CODE_DELTA_ANALYZED":
         return {
           eventType: "supervisor_route",
+          payload: { ...envelope, ...payloadObj }
+        };
+      case "CODE_DELTA_ANALYZED":
+        return {
+          eventType: "code_delta_analyzed",
           payload: { ...envelope, ...payloadObj }
         };
       case "VFS_SNAPSHOT_CREATED":

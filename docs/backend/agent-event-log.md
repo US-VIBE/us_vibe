@@ -26,6 +26,7 @@ These `eventType` values are reserved for cross-team alignment (extend only with
 | eventType | When to emit |
 |-----------|----------------|
 | `supervisor_route` | Supervisor chose target agent(s) and rationale summary. |
+| `code_delta_analyzed` | Push 웹훅·분석기가 `CodeDeltaSummary`를 산출했을 때 — D→Postgres 미러([`event-vocabulary-map.md`](../integration-sandbox/event-vocabulary-map.md)). |
 | `agent_reply` | An agent produced a user-visible or tool-visible response chunk. |
 | `contract_violation` | Output conflicts with OpenAPI, data model, or SSOT. |
 | `user_message` | End-user or learner message entered the session. |
