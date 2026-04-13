@@ -12,6 +12,7 @@ import {
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import { GeminiService } from "../ai/gemini.service";
+import { OrchestratorService } from "../ai/orchestrator.service";
 
 const SYSTEM =
   "You are assisting a Backend Solo collaboration learning simulator. " +
@@ -22,6 +23,7 @@ const SYSTEM =
 export class ScenarioRunnerService {
   constructor(
     private readonly gemini: GeminiService,
+    private readonly orchestrator: OrchestratorService,
     private readonly sessions: SessionsDataService,
     private readonly events: CollaborationEventsDataService,
     @InjectDataSource() private readonly dataSource: DataSource
@@ -239,5 +241,35 @@ export class ScenarioRunnerService {
     );
     const fin = await this.runFinish(sessionId);
     return { session: fin.session, steps: [...steps, ...fin.steps] };
+  }
+
+  /**
+   * O-1: Trigger dynamic orchestration turn.
+   */
+  async orchestrate(sessionId: string, userMessage: string): Promise<any> {
+    const decision = await this.orchestrator.processTurn(sessionId, userMessage);
+    
+    if (decision.supervisorResponse) {
+      await this.events.append(
+        "agent_reply",
+        { role: "Supervisor", phase: "orchestration", text: decision.supervisorResponse },
+        sessionId
+      );
+    }
+
+    const results = [];
+    if (Array.isArray(decision.decisions)) {
+      for (const d of decision.decisions) {
+        const agentResp = await this.orchestrator.invokeAgent(d.agentRole, d.instruction, sessionId);
+        await this.events.append(
+          "agent_reply",
+          { role: d.agentRole, phase: "orchestration", text: agentResp },
+          sessionId
+        );
+        results.push({ role: d.agentRole, text: agentResp });
+      }
+    }
+
+    return { supervisor: decision.supervisorResponse, agents: results };
   }
 }
