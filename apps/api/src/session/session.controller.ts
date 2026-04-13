@@ -156,6 +156,13 @@ export class SessionController {
           message: "PNG, JPEG, WebP, PDF만 업로드할 수 있습니다."
         });
       }
+      if (msg === "ARTIFACT_SIGNATURE_INVALID") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "파일 내용이 PNG, JPEG, WebP, PDF 중 하나가 아닙니다."
+        });
+      }
       throw e;
     }
   }
