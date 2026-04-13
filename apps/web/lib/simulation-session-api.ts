@@ -31,6 +31,7 @@ export async function createSimulationSessionForWorkspace(input: {
   try {
     const res = await apiFetch(`${base}/sessions`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
         learnerRole: "Backend Developer",
@@ -50,5 +51,32 @@ export async function createSimulationSessionForWorkspace(input: {
     return { id: row.id };
   } catch {
     return null;
+  }
+}
+
+const UUID_V4 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * 기존 Postgres 시뮬 세션과 맞출 때: GET /sessions/:id 로 존재 여부 확인.
+ */
+export async function verifySimulationSessionExists(id: string): Promise<boolean> {
+  const trimmed = id.trim();
+  if (!UUID_V4.test(trimmed)) {
+    return false;
+  }
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (!base) {
+    return false;
+  }
+  try {
+    const res = await apiFetch(`${base}/sessions/${encodeURIComponent(trimmed)}`, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" }
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }

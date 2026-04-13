@@ -10,13 +10,19 @@ import {
 import { fetchScenarioCatalog, fetchScenarioResolve } from "@/lib/scenarios-api";
 import { createSoloBeSession, saveSession } from "@/lib/session-storage";
 import type { LearningSession } from "@/lib/session-types";
-import { createSimulationSessionForWorkspace } from "@/lib/simulation-session-api";
+import {
+  createSimulationSessionForWorkspace,
+  verifySimulationSessionExists
+} from "@/lib/simulation-session-api";
 
 type Props = {
   onSessionCreated: (session: LearningSession) => void;
 };
 
 const PLACEHOLDER_UUID = "00000000-0000-4000-8000-000000000000";
+
+const UUID_V4_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -29,6 +35,8 @@ export function OnboardingForm({ onSessionCreated }: Props) {
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** F-1: 이미 만든 시뮬 세션·서버 INTEGRATION_WEBHOOK_SESSION_ID와 맞출 때 */
+  const [existingSimSessionId, setExistingSimSessionId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -85,15 +93,32 @@ export function OnboardingForm({ onSessionCreated }: Props) {
         checklistMarkdown = off.checklistMarkdown;
       }
 
-      const linked = await createSimulationSessionForWorkspace({
-        goal,
-        topic: t,
-        sprintDays,
-        proficiency
-      });
-
-      const sessionId =
-        linked?.id ?? offlineProvisionalId ?? crypto.randomUUID();
+      const pasted = existingSimSessionId.trim();
+      let sessionId: string;
+      if (pasted) {
+        if (!UUID_V4_RE.test(pasted)) {
+          setError("시뮬 세션 ID는 UUID v4 형식이어야 합니다. 비우면 새로 생성합니다.");
+          setSubmitting(false);
+          return;
+        }
+        const ok = await verifySimulationSessionExists(pasted);
+        if (!ok) {
+          setError(
+            "입력한 UUID에 해당하는 시뮬 세션이 API에서 확인되지 않습니다. 비우면 새 세션이 만들어집니다."
+          );
+          setSubmitting(false);
+          return;
+        }
+        sessionId = pasted;
+      } else {
+        const linked = await createSimulationSessionForWorkspace({
+          goal,
+          topic: t,
+          sprintDays,
+          proficiency
+        });
+        sessionId = linked?.id ?? offlineProvisionalId ?? crypto.randomUUID();
+      }
 
       let checklist = checklistMarkdown;
       if (offlineProvisionalId && offlineProvisionalId !== sessionId) {
@@ -182,6 +207,29 @@ export function OnboardingForm({ onSessionCreated }: Props) {
                 카탈로그 API를 불러오지 못해 자동 모드만 사용합니다. ({catalogErr})
               </p>
             )}
+          </div>
+
+          <div>
+            <label
+              className="block text-xs font-medium text-slate-700"
+              htmlFor="existing-sim-id"
+            >
+              기존 시뮬 세션 ID (선택, UUID)
+            </label>
+            <input
+              id="existing-sim-id"
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-slate-400"
+              value={existingSimSessionId}
+              onChange={(e) => setExistingSimSessionId(e.target.value)}
+              placeholder="비우면 POST /sessions 로 새로 생성"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              서버 <code className="rounded bg-slate-100 px-0.5">INTEGRATION_WEBHOOK_SESSION_ID</code>와
+              같게 맞출 때 기존 <code className="rounded bg-slate-100 px-0.5">GET /sessions/:id</code>로
+              검증된 UUID를 넣습니다.
+            </p>
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
