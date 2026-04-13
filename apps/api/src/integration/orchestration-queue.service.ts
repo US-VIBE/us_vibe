@@ -8,7 +8,11 @@ import {
 import { Queue, Worker, QueueEvents, Job } from "bullmq";
 import Redis from "ioredis";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
-import type { IntegrationEvent } from "../../../../specs/data-model/types";
+import type {
+  IntegrationEvent,
+  IntegrationEventPayload,
+  IntegrationEventType,
+} from "../../../../specs/data-model/types";
 import { OrchestratorService } from "../ai/orchestrator.service";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 
@@ -186,12 +190,12 @@ export class OrchestrationQueueService implements OnModuleInit, OnModuleDestroy 
   }
 
   private async publishEvent(
-    type: string,
-    payload: any,
-    sessionId: string,
+    type: IntegrationEventType,
+    payload: IntegrationEventPayload,
+    sessionId: string
   ): Promise<void> {
     const event: IntegrationEvent = {
-      type: type as any,
+      type,
       sessionId,
       stateVersion: 0,
       triggeredBy: "orchestrator",

@@ -2,8 +2,21 @@ import { Injectable, Logger } from "@nestjs/common";
 import { GeminiService } from "./gemini.service";
 import * as fs from "fs";
 import * as path from "path";
+import type { SessionArtifactRecord } from "../persistence/workspace-persistence.service";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import { buildRoleGapPayload } from "../session/role-gap.util";
+
+/** Supervisor `processTurn` JSON 파싱 결과(느슨한 형태). */
+export interface SupervisorOrchestrationDecision {
+  supervisorResponse?: string;
+  decisions?: Array<{ agentRole: string; instruction: string }>;
+}
+
+export interface ArtifactEvaluationResult {
+  agentRole: string;
+  feedbackMarkdown: string;
+  rubric: SessionArtifactRecord["rubric"];
+}
 
 @Injectable()
 export class OrchestratorService {
@@ -39,12 +52,15 @@ export class OrchestratorService {
         return fs.readFileSync(p, "utf-8");
       }
       return "";
-    } catch (e) {
+    } catch {
       return "";
     }
   }
 
-  async processTurn(sessionId: string, userMessage: string): Promise<any> {
+  async processTurn(
+    sessionId: string,
+    userMessage: string
+  ): Promise<SupervisorOrchestrationDecision> {
     const prof = this.workspace.getSessionProfile(sessionId);
     const roleGap = buildRoleGapPayload(sessionId, prof);
     const projectState = this.workspace.getProjectState(sessionId);
@@ -95,7 +111,7 @@ ${JSON.stringify(context, null, 2)}
       // JSON 추출 시도
       const jsonMatch = resultText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        return JSON.parse(jsonMatch[0]) as SupervisorOrchestrationDecision;
       }
       
       return { supervisorResponse: resultText, decisions: [] };
@@ -105,7 +121,7 @@ ${JSON.stringify(context, null, 2)}
     }
   }
 
-  async invokeAgent(role: string, instruction: string, sessionId: string): Promise<string> {
+  async invokeAgent(role: string, instruction: string, _sessionId: string): Promise<string> {
     const agentDir = `${role.toLowerCase()}-agent`;
     const policy = this.loadAgentPolicy(agentDir, `${role.toLowerCase()}-policy.md`);
     const promptRef = this.loadAgentPolicy(agentDir, `${role.toLowerCase()}-prompt.md`);
@@ -120,8 +136,11 @@ Instruction: ${instruction}
     return this.gemini.generateText(system, promptRef || "유연하게 답변하십시오.");
   }
 
-  async evaluateArtifact(sessionId: string, artifactId: string): Promise<any> {
-    const artifact = this.workspace.getSessionArtifact(artifactId);
+  async evaluateArtifact(
+    sessionId: string,
+    artifactId: string
+  ): Promise<ArtifactEvaluationResult> {
+    const artifact = this.workspace.getSessionArtifact(sessionId, artifactId);
     if (!artifact) {
       throw new Error(`Artifact not found: ${artifactId}`);
     }
@@ -163,7 +182,7 @@ Evaluate based on the rubrics and provide a professional feedback.
         if (feedbackMarkdown === resultText) {
           feedbackMarkdown = resultText.replace(jsonMatch[0], "").trim();
         }
-      } catch (e) {
+      } catch {
         this.logger.warn("Failed to parse AI evaluation JSON");
       }
     }

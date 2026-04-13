@@ -743,8 +743,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, evaluation_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -755,6 +755,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         input.buffer.length,
         storedPath,
         JSON.stringify(rubric),
+        null,
         createdAt
       );
     return {
@@ -766,29 +767,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       sizeBytes: input.buffer.length,
       storedPath,
       rubric,
-      createdAt,
-      evaluation: null
-    };
-  }
-
-  getSessionArtifact(artifactId: string): SessionArtifactRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at
-         FROM session_artifact WHERE id = ?`
-      )
-      .get(artifactId) as any;
-    if (!row) return null;
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      kind: row.kind,
-      originalName: row.original_name,
-      mime: row.mime,
-      sizeBytes: row.size_bytes,
-      storedPath: row.stored_path,
-      rubric: JSON.parse(row.rubric_json),
-      createdAt: row.created_at
+      evaluation: null,
+      createdAt
     };
   }
 

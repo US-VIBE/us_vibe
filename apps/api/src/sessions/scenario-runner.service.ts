@@ -246,7 +246,10 @@ export class ScenarioRunnerService {
   /**
    * O-1: Trigger dynamic orchestration turn (Async via BullMQ).
    */
-  async orchestrate(sessionId: string, userMessage: string): Promise<any> {
+  async orchestrate(
+    sessionId: string,
+    userMessage: string
+  ): Promise<{ ok: true; jobId: string; message: string }> {
     const jobId = await this.orchestrationQueue.enqueue({ sessionId, userMessage, type: "TURN" });
     return { ok: true, jobId, message: "Orchestration task queued." };
   }
@@ -254,7 +257,13 @@ export class ScenarioRunnerService {
   /**
    * Sync version for legacy/internal use if needed.
    */
-  async orchestrateSync(sessionId: string, userMessage: string): Promise<any> {
+  async orchestrateSync(
+    sessionId: string,
+    userMessage: string
+  ): Promise<{
+    supervisor: string | undefined;
+    agents: Array<{ role: string; text: string }>;
+  }> {
     const decision = await this.orchestrator.processTurn(sessionId, userMessage);
     
     if (decision.supervisorResponse) {
@@ -265,7 +274,7 @@ export class ScenarioRunnerService {
       );
     }
 
-    const results = [];
+    const results: Array<{ role: string; text: string }> = [];
     if (Array.isArray(decision.decisions)) {
       for (const d of decision.decisions) {
         const agentResp = await this.orchestrator.invokeAgent(d.agentRole, d.instruction, sessionId);
