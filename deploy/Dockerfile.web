@@ -10,6 +10,7 @@ COPY src/backend/package.json src/backend/
 COPY apps/web apps/web
 COPY src/backend src/backend
 COPY apps/api/package.json apps/api/
+COPY specs specs
 
 RUN npm ci
 RUN npm run build -w @us-vibe/backend && npm run build -w web
