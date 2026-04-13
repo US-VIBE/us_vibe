@@ -249,7 +249,7 @@ export class ScenarioRunnerService {
    * O-1: Trigger dynamic orchestration turn (Async via BullMQ).
    */
   async orchestrate(sessionId: string, userMessage: string): Promise<any> {
-    const jobId = await this.orchestrationQueue.enqueue({ sessionId, userMessage });
+    const jobId = await this.orchestrationQueue.enqueue({ sessionId, userMessage, type: "TURN" });
     return { ok: true, jobId, message: "Orchestration task queued." };
   }
 

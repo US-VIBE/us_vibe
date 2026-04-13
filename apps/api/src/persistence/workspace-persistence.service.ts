@@ -706,6 +706,38 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     };
   }
 
+  getSessionArtifact(artifactId: string): SessionArtifactRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at
+         FROM session_artifact WHERE id = ?`
+      )
+      .get(artifactId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      kind: row.kind,
+      originalName: row.original_name,
+      mime: row.mime,
+      sizeBytes: row.size_bytes,
+      storedPath: row.stored_path,
+      rubric: JSON.parse(row.rubric_json),
+      createdAt: row.created_at
+    };
+  }
+
+  updateArtifactAiReview(
+    artifactId: string,
+    rubric: SessionArtifactRecord["rubric"]
+  ): void {
+    this.db
+      .prepare(
+        "UPDATE session_artifact SET rubric_json = ? WHERE id = ?"
+      )
+      .run(JSON.stringify(rubric), artifactId);
+  }
+
   private evaluateArtifactRubric(
     mime: string,
     sizeBytes: number
