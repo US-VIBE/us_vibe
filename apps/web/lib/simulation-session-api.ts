@@ -23,7 +23,7 @@ export async function createSimulationSessionForWorkspace(input: {
   proficiency: LearningSession["proficiency"];
   learnerRole?: LearnerRole;
   activeRoles?: string[];
-  scenarioId?: string;
+  scenarioId?: string | null;
 }): Promise<{ id: string } | null> {
   const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (!base) {
@@ -51,6 +51,23 @@ export async function createSimulationSessionForWorkspace(input: {
     body.scenarioId = input.scenarioId.trim();
   }
   try {
+    const learnerRoleLabel =
+      input.learnerRole === "frontend_developer" ? "Frontend Developer" : "Backend Developer";
+
+    const body: Record<string, unknown> = {
+      learnerRole: learnerRoleLabel,
+      learningGoal,
+      topic,
+      sprintDuration,
+      skillLevel
+    };
+    if (input.activeRoles?.length) {
+      body.activeRoles = input.activeRoles;
+    }
+    if (input.scenarioId != null && String(input.scenarioId).trim() !== "") {
+      body.scenarioId = String(input.scenarioId).trim();
+    }
+
     const res = await apiFetch(`${base}/sessions`, {
       method: "POST",
       credentials: "include",

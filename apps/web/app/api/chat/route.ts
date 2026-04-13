@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  buildCollaborationContextLines,
+  COLLAB_LEARNER_SUMMARY_LINE,
+  learnerFocusFromSessionRole
+} from "../../../lib/collaboration-chat-context";
 
 type HistoryTurn = { role: "user" | "assistant"; content: string };
 
@@ -8,6 +13,10 @@ type Body = {
     goal?: string;
     sprintDays?: number;
     proficiency?: string;
+    /** `backend_developer` | `frontend_developer` — 생략 시 백엔드 */
+    learnerRole?: string;
+    /** 세션에 켜 둔 AI 역할군 — 협업 컨텍스트 주입에 사용, 생략 시 백엔드 솔로 MVP 기본 */
+    activatedAiRoleLabels?: string[];
   };
   agent?: { agentId?: string; role?: string; displayName?: string };
   history?: HistoryTurn[];
@@ -44,10 +53,21 @@ function buildSystemPrompt(input: {
   goal: string;
   sprint: number;
   prof: string;
+  learnerRole?: string;
+  activatedAiRoleLabels?: readonly string[];
 }): string {
+  const who = `당신은 소프트웨어 개발 스프린트 협업 시뮬레이션에서 ${input.role} 역할의 AI 동료「${input.name}」입니다.`;
+  const focus = learnerFocusFromSessionRole(input.learnerRole);
+  const collaboration = buildCollaborationContextLines({
+    learnerRole: input.learnerRole,
+    activatedAiRoleLabels: input.activatedAiRoleLabels,
+    replyingAgentRole: input.role
+  });
+  const learnerLine = COLLAB_LEARNER_SUMMARY_LINE[focus];
   return [
-    `당신은 소프트웨어 개발 스프린트 협업 시뮬레이션에서 ${input.role} 역할의 AI 동료「${input.name}」입니다.`,
-    `학습자는 백엔드 개발자이며, 함께 주제와 목표를 진행합니다.`,
+    who,
+    ...collaboration,
+    learnerLine,
     `주제: ${input.topic}`,
     `목표: ${input.goal}`,
     `스프린트: ${input.sprint}일 · 숙련도: ${input.prof}`,
@@ -265,14 +285,15 @@ export async function POST(request: Request) {
   const goal = session.goal ?? "";
   const sprint = session.sprintDays ?? 1;
   const prof = session.proficiency ?? "intermediate";
-
   const system = buildSystemPrompt({
     role,
     name,
     topic,
     goal,
     sprint,
-    prof
+    prof,
+    learnerRole: session.learnerRole,
+    activatedAiRoleLabels: session.activatedAiRoleLabels
   });
 
   try {

@@ -2,11 +2,17 @@
 
 export type Proficiency = "beginner" | "intermediate" | "advanced";
 
-/** 온보딩에서 선택하는 구현 집중축 — API `POST /sessions`의 learnerRole 문자열과 별도로 저장 */
+/** 채팅·협업 톤: 학습자가 맡는 구현 축 */
 export type LearnerRole = "backend_developer" | "frontend_developer";
+
+/** API·프롬프트용: 학습자 집중 축 */
+export function learnerFocusFromRole(role: LearnerRole | undefined): "backend" | "frontend" {
+  return role === "frontend_developer" ? "frontend" : "backend";
+}
 
 export interface LearningSession {
   sessionId: string;
+  /** 학습자가 맡는 구현 축 — 에이전트는 여기에 맞춰 ‘결손 보강’한다 */
   learnerRole: LearnerRole;
   goal: string;
   topic: string;

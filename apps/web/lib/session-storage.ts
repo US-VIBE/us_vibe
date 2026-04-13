@@ -40,6 +40,7 @@ export function createSoloBeSession(input: {
   briefingMarkdown?: string;
   sessionId?: string;
   learnerRole?: LearningSession["learnerRole"];
+  /** 생략 시 SOLO_BE 전원 */
   activatedAiRoleLabels?: readonly string[];
 }): LearningSession {
   return {
