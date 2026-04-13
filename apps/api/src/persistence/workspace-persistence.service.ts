@@ -145,6 +145,17 @@ export interface SessionArtifactRecord {
   evaluation: SessionArtifactEvaluation | null;
 }
 
+/** 채팅 멀티모달 전용 — 산출물(session_artifact)과 저장 경로·DB를 분리 */
+export interface SessionChatImageRecord {
+  id: string;
+  sessionId: string;
+  originalName: string;
+  mime: string;
+  sizeBytes: number;
+  storedPath: string;
+  createdAt: string;
+}
+
 export interface InAppNotificationRow {
   id: string;
   sessionId: string;
@@ -305,6 +316,17 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       );
       CREATE INDEX IF NOT EXISTS idx_session_artifact_session
         ON session_artifact (session_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS session_chat_image (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        stored_path TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_chat_image_session
+        ON session_chat_image (session_id, created_at DESC);
       CREATE TABLE IF NOT EXISTS in_app_notification (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -714,6 +736,14 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return path.join(process.cwd(), "data", "artifacts");
   }
 
+  private chatImageStorageRoot(): string {
+    const raw = process.env.CHAT_IMAGE_STORAGE_PATH?.trim();
+    if (raw) {
+      return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+    }
+    return path.join(process.cwd(), "data", "chat-images");
+  }
+
   saveSessionArtifact(input: {
     sessionId: string;
     kind: string;
@@ -768,6 +798,85 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       rubric,
       createdAt,
       evaluation: null
+    };
+  }
+
+  saveSessionChatImage(input: {
+    sessionId: string;
+    originalName: string;
+    mime: string;
+    buffer: Buffer;
+  }): SessionChatImageRecord {
+    const maxBytes = 1_048_576;
+    if (input.buffer.length > maxBytes) {
+      throw new Error("CHAT_IMAGE_TOO_LARGE");
+    }
+    const allowed = /^image\/(png|jpeg|webp)$/i.test(input.mime) || input.mime === "image/jpg";
+    if (!allowed) {
+      throw new Error("CHAT_IMAGE_MIME_NOT_ALLOWED");
+    }
+
+    const id = crypto.randomUUID();
+    const ext =
+      path.extname(input.originalName) ||
+      (input.mime.includes("webp") ? ".webp" : input.mime.includes("png") ? ".png" : ".jpg");
+    const dir = path.join(this.chatImageStorageRoot(), input.sessionId);
+    fs.mkdirSync(dir, { recursive: true });
+    const storedPath = path.join(dir, `${id}${ext}`);
+    fs.writeFileSync(storedPath, input.buffer);
+
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO session_chat_image (id, session_id, original_name, mime, size_bytes, stored_path, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.sessionId,
+        input.originalName,
+        input.mime,
+        input.buffer.length,
+        storedPath,
+        createdAt
+      );
+    return {
+      id,
+      sessionId: input.sessionId,
+      originalName: input.originalName,
+      mime: input.mime,
+      sizeBytes: input.buffer.length,
+      storedPath,
+      createdAt
+    };
+  }
+
+  getSessionChatImage(sessionId: string, imageId: string): SessionChatImageRecord | null {
+    const r = this.db
+      .prepare(
+        `SELECT id, session_id, original_name, mime, size_bytes, stored_path, created_at
+         FROM session_chat_image WHERE session_id = ? AND id = ?`
+      )
+      .get(sessionId, imageId) as
+      | {
+          id: string;
+          session_id: string;
+          original_name: string;
+          mime: string;
+          size_bytes: number;
+          stored_path: string;
+          created_at: string;
+        }
+      | undefined;
+    if (!r) return null;
+    return {
+      id: r.id,
+      sessionId: r.session_id,
+      originalName: r.original_name,
+      mime: r.mime,
+      sizeBytes: r.size_bytes,
+      storedPath: r.stored_path,
+      createdAt: r.created_at
     };
   }
 

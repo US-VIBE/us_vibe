@@ -9,11 +9,13 @@ import {
   Post,
   Req,
   ServiceUnavailableException,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors
 } from "@nestjs/common";
 import * as fs from "fs";
+import { createReadStream } from "fs";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
@@ -25,6 +27,7 @@ import {
 import { getScenarioPackById, renderGithubEnvSnippet } from "../scenarios/scenario-registry";
 import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
 import { buildRoleGapPayload } from "./role-gap.util";
+import { chatImageDownloadSecret, signChatImageDownload } from "./chat-image-download.util";
 
 /**
  * 워크스페이스 세션 — role-gap, Prompt-to-Spec, 게이트 조회
@@ -170,6 +173,109 @@ export class SessionController {
       }
       throw e;
     }
+  }
+
+  /**
+   * 워크스페이스 채팅 이미지 업로드 — 산출물(artifacts)과 별도 저장.
+   * 응답의 `signedViewPath`는 브라우저 `<img src>`용(만료 TTL). Next 서버는 JWT `GET .../file`로 바이트를 받을 수 있습니다.
+   */
+  @Post(":sessionId/chat-images")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 1_048_576 }
+    })
+  )
+  uploadChatImage(
+    @Param("sessionId") sessionId: string,
+    @UploadedFile()
+    file:
+      | {
+          buffer: Buffer;
+          mimetype: string;
+          originalname: string;
+        }
+      | undefined,
+    @Req() req: AuthedRequest
+  ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    if (!file?.buffer) {
+      throw new BadRequestException({
+        ok: false,
+        code: "CHAT_IMAGE_FILE_REQUIRED",
+        message: "multipart 필드 file 이 필요합니다."
+      });
+    }
+    try {
+      const record = this.workspace.saveSessionChatImage({
+        sessionId,
+        originalName: file.originalname || "chat-image",
+        mime: file.mimetype,
+        buffer: file.buffer
+      });
+      const exp = Math.floor(Date.now() / 1000) + 86_400;
+      const sig = signChatImageDownload(sessionId, record.id, exp, chatImageDownloadSecret());
+      const signedViewPath = `/api/chat-image-files/${encodeURIComponent(sessionId)}/${encodeURIComponent(record.id)}?exp=${exp}&sig=${encodeURIComponent(sig)}`;
+      const publicBase = (process.env.API_PUBLIC_URL ?? "").replace(/\/$/, "");
+      const signedViewUrl = publicBase ? `${publicBase}${signedViewPath}` : null;
+      return {
+        ok: true,
+        data: {
+          id: record.id,
+          mime: record.mime,
+          originalName: record.originalName,
+          sizeBytes: record.sizeBytes,
+          signedViewPath,
+          signedViewUrl
+        }
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "CHAT_IMAGE_TOO_LARGE") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "채팅 이미지는 1MB 이하여야 합니다."
+        });
+      }
+      if (msg === "CHAT_IMAGE_MIME_NOT_ALLOWED") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "PNG, JPEG, WebP만 업로드할 수 있습니다."
+        });
+      }
+      throw e;
+    }
+  }
+
+  /** 채팅 이미지 바이너리 — Bearer JWT (Next 서버 등 서버측 호출). */
+  @Get(":sessionId/chat-images/:imageId/file")
+  getChatImageFile(
+    @Param("sessionId") sessionId: string,
+    @Param("imageId") imageId: string,
+    @Req() req: AuthedRequest
+  ): StreamableFile {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    const row = this.workspace.getSessionChatImage(sessionId, imageId);
+    if (!row) {
+      throw new NotFoundException({
+        ok: false,
+        code: "CHAT_IMAGE_NOT_FOUND",
+        message: "이미지를 찾을 수 없습니다."
+      });
+    }
+    try {
+      fs.accessSync(row.storedPath, fs.constants.R_OK);
+    } catch {
+      throw new NotFoundException({
+        ok: false,
+        code: "CHAT_IMAGE_FILE_MISSING",
+        message: "저장된 파일을 읽을 수 없습니다."
+      });
+    }
+    return new StreamableFile(createReadStream(row.storedPath), {
+      type: row.mime
+    });
   }
 
   /** Body: `{ "force": true }` 이면 완료된 평가도 다시 호출합니다. */

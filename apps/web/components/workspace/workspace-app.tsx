@@ -13,8 +13,10 @@ import {
   Lock,
   LogOut,
   MessageSquare,
+  Paperclip,
   Sparkles,
   Users,
+  X,
   XCircle
 } from "lucide-react";
 import type { StoryTabId } from "@/lib/workspace-types";
@@ -48,8 +50,9 @@ import { clearContractGate, loadContractGate, saveContractGate } from "@/lib/con
 import { fetchRetroKpiPreview, fetchRetroReports, generateRetroReport } from "@/lib/retro-service";
 import type { RetroKpiEvidenceBlock, RetroReport } from "@/lib/retro-types";
 import { clearRetroPersist, loadRetroPersist, saveRetroPersist } from "@/lib/retro-persist";
+import { CHAT_ATTACH_LIMITS, fileToChatAttachment } from "@/lib/chat-attachments";
 import { fetchAgentReply } from "@/lib/chat-ai";
-import type { ChatMessage } from "@/lib/chat-types";
+import type { ChatAttachment, ChatMessage } from "@/lib/chat-types";
 import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { IntegrationEventsPanel } from "@/components/workspace/integration-events-panel";
 import { IntegrationToolsPanel } from "@/components/workspace/integration-tools-panel";
@@ -128,6 +131,8 @@ export function WorkspaceApp({
 }: WorkspaceAppProps) {
   const [activeStory, setActiveStory] = useState<StoryTabId>("s1");
   const [chatInput, setChatInput] = useState("");
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [roleGap, setRoleGap] = useState<RoleGapSnapshot | null>(null);
   const [gapLoading, setGapLoading] = useState(true);
@@ -510,9 +515,40 @@ export function WorkspaceApp({
     }
   }, [session]);
 
+  const chatImageUploadOpts = useMemo(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+    if (!apiBase) return undefined;
+    return { apiBase, sessionId: session.sessionId };
+  }, [session.sessionId]);
+
+  const addChatFiles = useCallback(async (files: File[] | FileList) => {
+    const list = Array.from(files);
+    const toAdd: ChatAttachment[] = [];
+    const errs: string[] = [];
+    for (const file of list) {
+      const r = await fileToChatAttachment(file, chatImageUploadOpts);
+      if (r.ok) toAdd.push(r.attachment);
+      else errs.push(r.error);
+    }
+    if (errs.length) {
+      setMessages((m) => [
+        ...m,
+        { id: `sys-att-${Date.now()}`, kind: "system", text: errs.join("\n") }
+      ]);
+    }
+    if (!toAdd.length) return;
+    setChatAttachments((prev) => {
+      const room = CHAT_ATTACH_LIMITS.maxAttachments - prev.length;
+      if (room <= 0) return prev;
+      return [...prev, ...toAdd.slice(0, room)];
+    });
+  }, [chatImageUploadOpts]);
+
   const sendChat = useCallback(async () => {
     const t = chatInput.trim();
-    if (!t || gapLoading || !roleGap?.injectedAgents.length || chatSending) return;
+    const attachSnap = [...chatAttachments];
+    const hasBody = Boolean(t) || attachSnap.length > 0;
+    if (!hasBody || gapLoading || !roleGap?.injectedAgents.length || chatSending) return;
     const agents = roleGap.injectedAgents;
     const i = agentReplyIndex.current % agents.length;
     agentReplyIndex.current += 1;
@@ -520,14 +556,26 @@ export function WorkspaceApp({
     const uid = `u-${Date.now()}`;
     const aid = `a-${Date.now()}`;
     const prevMessages = messages;
+    const userText = t || (attachSnap.length > 0 ? "" : "");
+    const userDisplay = t || (attachSnap.length > 0 ? "(첨부만 전송)" : "");
     setChatInput("");
+    setChatAttachments([]);
     setChatSending(true);
-    setMessages((m) => [...m, { id: uid, kind: "user", text: t }]);
+    setMessages((m) => [
+      ...m,
+      {
+        id: uid,
+        kind: "user",
+        text: userDisplay,
+        attachments: attachSnap.length > 0 ? attachSnap : undefined
+      }
+    ]);
     const result = await fetchAgentReply({
       session,
       agent: replier,
       messages: prevMessages,
-      userText: t
+      userText,
+      userAttachments: attachSnap.length > 0 ? attachSnap : undefined
     });
     if (result.ok) {
       setMessages((m) => [
@@ -554,6 +602,7 @@ export function WorkspaceApp({
     setChatSending(false);
   }, [
     chatInput,
+    chatAttachments,
     gapLoading,
     roleGap,
     chatSending,
@@ -780,7 +829,34 @@ export function WorkspaceApp({
                   }
                   if (m.kind === "user") {
                     return (
-                      <li key={m.id} className="ml-4 rounded-lg bg-slate-900 px-3 py-2 text-slate-50">
+                      <li key={m.id} className="ml-4 space-y-2 rounded-lg bg-slate-900 px-3 py-2 text-slate-50">
+                        {m.attachments?.length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {m.attachments.map((a, ai) =>
+                              a.type === "image" || a.type === "image_ref" ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  key={`${m.id}-att-${ai}`}
+                                  src={a.type === "image_ref" ? a.viewUrl : a.dataUrl}
+                                  alt={a.name ?? "첨부 이미지"}
+                                  className="max-h-36 max-w-full rounded border border-white/20 object-contain"
+                                />
+                              ) : (
+                                <div
+                                  key={`${m.id}-att-${ai}`}
+                                  className="max-w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-left text-[11px]"
+                                >
+                                  <span className="font-mono text-sky-200">{a.name}</span>
+                                  <span className="text-slate-400"> · {a.mime}</span>
+                                  <pre className="mt-1 max-h-24 max-w-full overflow-auto whitespace-pre-wrap break-all text-[10px] text-slate-200">
+                                    {a.preview.slice(0, 400)}
+                                    {a.preview.length > 400 ? "…" : ""}
+                                  </pre>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        ) : null}
                         <ChatMarkdownBody
                           text={m.text}
                           className="[&_a]:text-sky-300 [&_code]:bg-white/15 [&_pre]:bg-white/10"
@@ -808,19 +884,63 @@ export function WorkspaceApp({
                   );
                 })}
             </ul>
+            {chatAttachments.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2">
+                {chatAttachments.map((a, i) => (
+                  <div
+                    key={`draft-${i}`}
+                    className="flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700"
+                  >
+                    {a.type === "image" || a.type === "image_ref" ? (
+                      <>
+                        <span className="max-w-[120px] truncate">{a.name ?? "이미지"}</span>
+                        <span className="text-slate-400">
+                          · {a.type === "image_ref" ? "이미지(서버)" : "이미지"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="max-w-[120px] truncate font-mono">{a.name}</span>
+                        <span className="text-slate-400">· 파일</span>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      aria-label="첨부 제거"
+                      onClick={() => setChatAttachments((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="flex gap-2">
               <label className="sr-only" htmlFor="chat-input">
                 메시지
               </label>
-              <input
+              <textarea
                 id="chat-input"
-                className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none ring-slate-400 focus:ring-2 disabled:bg-slate-50"
+                rows={2}
+                className="min-h-[2.75rem] min-w-0 flex-1 resize-y rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none ring-slate-400 focus:ring-2 disabled:bg-slate-50"
                 placeholder={
-                  gapLoading ? "불러오는 중…" : chatSending ? "답변 생성 중…" : "메시지 입력…"
+                  gapLoading
+                    ? "불러오는 중…"
+                    : chatSending
+                      ? "답변 생성 중…"
+                      : "메시지 입력… (이미지·코드 파일 첨부 가능)"
                 }
                 value={chatInput}
                 disabled={gapLoading || !roleGap || chatSending}
                 onChange={(e) => setChatInput(e.target.value)}
+                onPaste={(e) => {
+                  const files = e.clipboardData?.files;
+                  if (files?.length) {
+                    e.preventDefault();
+                    void addChatFiles(files);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -828,11 +948,38 @@ export function WorkspaceApp({
                   }
                 }}
               />
+              <input
+                ref={chatFileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                accept="image/png,image/jpeg,image/webp,.txt,.md,.json,.yaml,.yml,.ts,.tsx,.js,.jsx,.css,.html,.log"
+                onChange={(e) => {
+                  const fl = e.target.files;
+                  if (fl?.length) void addChatFiles(fl);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                title="이미지·텍스트 파일 첨부"
+                aria-label="파일 첨부"
+                disabled={gapLoading || !roleGap || chatSending}
+                onClick={() => chatFileInputRef.current?.click()}
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               <button
                 type="button"
                 className="shrink-0 rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
                 onClick={() => void sendChat()}
-                disabled={gapLoading || !roleGap || chatSending}
+                disabled={
+                  gapLoading ||
+                  !roleGap ||
+                  chatSending ||
+                  (!chatInput.trim() && chatAttachments.length === 0)
+                }
               >
                 {chatSending ? "전송 중…" : "전송"}
               </button>
