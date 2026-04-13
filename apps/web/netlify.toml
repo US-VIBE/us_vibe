@@ -11,3 +11,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+# App Router·SSR·Route handlers 가 404 나지 않도록 Next 런타임 연동(모노레포에서도 필수에 가깝다).
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
