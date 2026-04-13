@@ -56,6 +56,10 @@ import type { ChatAttachment, ChatMessage } from "@/lib/chat-types";
 import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { IntegrationEventsPanel } from "@/components/workspace/integration-events-panel";
 import { IntegrationToolsPanel } from "@/components/workspace/integration-tools-panel";
+import {
+  fetchInAppNotifications,
+  postDiscussionPing
+} from "@/lib/workspace-collab-api";
 
 export type { ChatMessage };
 
@@ -71,6 +75,9 @@ const storyTabs: { id: StoryTabId; label: string; short: string }[] = [
 ];
 
 const TABS_AFTER_SPEC_APPROVAL: StoryTabId[] = ["s3", "s4", "s5"];
+
+const IN_APP_POLL_MS = 45_000;
+const DISCUSSION_PING_MS = 3 * 60_000;
 
 function isStoryLocked(tab: StoryTabId, specApproved: boolean): boolean {
   if (specApproved) return false;
@@ -138,6 +145,8 @@ export function WorkspaceApp({
   const [gapLoading, setGapLoading] = useState(true);
   const [gapError, setGapError] = useState<string | null>(null);
   const agentReplyIndex = useRef(0);
+  const seenInAppNotifIds = useRef<Set<string>>(new Set());
+  const inAppNotifsPrimed = useRef(false);
   const [chatSending, setChatSending] = useState(false);
   const [sseThinkingLines, setSseThinkingLines] = useState<string[]>([]);
 
@@ -204,6 +213,79 @@ export function WorkspaceApp({
   useEffect(() => {
     void loadRoleGap();
   }, [loadRoleGap]);
+
+  useEffect(() => {
+    seenInAppNotifIds.current.clear();
+    inAppNotifsPrimed.current = false;
+  }, [session.sessionId]);
+
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+    if (!apiBase || gapLoading || !roleGap) return;
+    let cancelled = false;
+
+    const notificationToChatText = (n: { kind: string; title: string; body: string }) =>
+      n.kind.startsWith("discussion_")
+        ? `**[논의·알림]** ${n.title}\n\n${n.body}`
+        : `**${n.title}**\n\n${n.body}`;
+
+    const pullAndMerge = async () => {
+      try {
+        const list = await fetchInAppNotifications(apiBase, session.sessionId);
+        if (cancelled) return;
+        if (!inAppNotifsPrimed.current) {
+          inAppNotifsPrimed.current = true;
+          const discussionFirst = list
+            .filter((n) => n.kind.startsWith("discussion_"))
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+          for (const n of list) seenInAppNotifIds.current.add(n.id);
+          if (discussionFirst.length > 0) {
+            setMessages((prev) => [
+              ...prev,
+              ...discussionFirst.map((n) => ({
+                id: `inapp-${n.id}`,
+                kind: "system" as const,
+                text: notificationToChatText(n)
+              }))
+            ]);
+          }
+          return;
+        }
+        const fresh = list.filter((n) => !seenInAppNotifIds.current.has(n.id));
+        fresh.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        if (fresh.length === 0) return;
+        for (const n of fresh) seenInAppNotifIds.current.add(n.id);
+        setMessages((prev) => [
+          ...prev,
+          ...fresh.map((n) => ({
+            id: `inapp-${n.id}`,
+            kind: "system" as const,
+            text: notificationToChatText(n)
+          }))
+        ]);
+      } catch {
+        /* 비로그인·API 없음 */
+      }
+    };
+
+    const pingThenPull = async () => {
+      try {
+        await postDiscussionPing(apiBase, session.sessionId, { force: false });
+      } catch {
+        /* ignore */
+      }
+      await pullAndMerge();
+    };
+
+    void pingThenPull();
+    const pollTimer = window.setInterval(pullAndMerge, IN_APP_POLL_MS);
+    const pingTimer = window.setInterval(pingThenPull, DISCUSSION_PING_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollTimer);
+      window.clearInterval(pingTimer);
+    };
+  }, [session.sessionId, gapLoading, roleGap]);
 
   useEffect(() => {
     const p = loadPersistedSpec(session.sessionId);

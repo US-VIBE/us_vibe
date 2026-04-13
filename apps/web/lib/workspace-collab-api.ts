@@ -307,6 +307,42 @@ export async function fetchInAppNotifications(
   return body.data;
 }
 
+export type DiscussionPingRow = { id: string; title: string; body: string; kind: string; createdAt: string };
+
+export type DiscussionPingResponse = {
+  inserted: DiscussionPingRow[];
+  skipped: Array<{ kind: string; reason: string }>;
+};
+
+/** 서버가 워크스페이스 상태를 평가해 논의용 in-app 알림을 생성한다. */
+export async function postDiscussionPing(
+  apiBase: string,
+  sessionId: string,
+  options?: { force?: boolean }
+): Promise<DiscussionPingResponse> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/discussion-ping`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: options?.force ?? false })
+    }
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? `discussion-ping ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    ok?: boolean;
+    data?: DiscussionPingResponse;
+  };
+  if (!body?.ok || !body.data || !Array.isArray(body.data.inserted) || !Array.isArray(body.data.skipped)) {
+    throw new Error("discussion-ping invalid response");
+  }
+  return body.data;
+}
+
 export async function patchProjectState(
   apiBase: string,
   sessionId: string,

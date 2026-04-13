@@ -1021,6 +1021,21 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     };
   }
 
+  /** 동일 `kind` 알림이 쿨다운 안에 있었는지(중복 스팸 방지). */
+  hasRecentInAppNotification(sessionId: string, kind: string, cooldownMinutes: number): boolean {
+    const m = Math.min(Math.max(1, Math.floor(cooldownMinutes)), 24 * 60);
+    const row = this.db
+      .prepare(
+        `SELECT created_at FROM in_app_notification
+         WHERE session_id = ? AND kind = ? ORDER BY datetime(created_at) DESC LIMIT 1`
+      )
+      .get(sessionId, kind) as { created_at: string } | undefined;
+    if (!row?.created_at) return false;
+    const t = Date.parse(row.created_at);
+    if (!Number.isFinite(t)) return false;
+    return Date.now() - t < m * 60_000;
+  }
+
   listInAppNotifications(sessionId: string, limit = 50): InAppNotificationRow[] {
     const cap = Math.min(Math.max(1, limit), 100);
     const rows = this.db
