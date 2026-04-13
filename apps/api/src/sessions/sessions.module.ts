@@ -1,9 +1,7 @@
-import {
-  CollaborationEvent,
-  CollaborationEventsDataService,
-  SimulationSession,
-  SessionsDataService
-} from "@us-vibe/backend";
+import { CollaborationEventsDataService } from "../../../../src/backend/src/collaboration/collaboration-events-data.service";
+import { CollaborationEvent } from "../../../../src/backend/src/entities/collaboration-event.entity";
+import { SimulationSession } from "../../../../src/backend/src/entities/simulation-session.entity";
+import { SessionsDataService } from "../../../../src/backend/src/sessions/sessions-data.service";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { getRepositoryToken } from "@nestjs/typeorm";

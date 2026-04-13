@@ -55,6 +55,7 @@ API만 DB까지 포함해 띄우려면 기존처럼 `npm run dev:api:stack` 을 
 - **맥에서 Docker로 DB·연동 실행:** `docs/docker-mac.md`
 - Product/Sprint plan: `docs/plan.md`
 - **협업용 통합 참고(환경 변수·엔드포인트·이름 규칙):** `docs/collaboration-env-and-endpoints.md`
+- **기능 단위(연동·타임라인·웹훅 라우팅·회고 KPI·Redis replay):** `docs/features/README.md`
 - FE ↔ API 연동: `docs/fe-web-integration.md`
 - Backend solo user scenario (MVP flow): `docs/user-scenario-backend-solo-mvp.md`
 - Full architecture plan: `docs/ai_협업_에이전트_설계_10198352.plan.md`

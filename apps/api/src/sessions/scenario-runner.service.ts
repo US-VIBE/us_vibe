@@ -1,8 +1,6 @@
-import {
-  CollaborationEventsDataService,
-  SessionsDataService
-} from "@us-vibe/backend";
-import type { SimulationSession } from "@us-vibe/backend";
+import { CollaborationEventsDataService } from "../../../../src/backend/src/collaboration/collaboration-events-data.service";
+import type { SimulationSession } from "../../../../src/backend/src/entities/simulation-session.entity";
+import { SessionsDataService } from "../../../../src/backend/src/sessions/sessions-data.service";
 import {
   BadRequestException,
   Injectable,
@@ -10,7 +8,7 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
-import type { DataSource } from "typeorm";
+import { DataSource } from "typeorm";
 import { GeminiService } from "../ai/gemini.service";
 
 const SYSTEM =

@@ -1,6 +1,6 @@
 import { apiFetch } from "./api-fetch";
 import type { LearningSession } from "./session-types";
-import type { RetroReport } from "./retro-types";
+import type { RetroKpi, RetroKpiEvidenceBlock, RetroReport } from "./retro-types";
 
 function unwrap<T>(json: unknown): T | null {
   if (!json || typeof json !== "object") return null;
@@ -99,4 +99,31 @@ export async function generateRetroReport(session: LearningSession): Promise<Ret
     throw new Error(fromBody ?? `retro/generate ${res.status}`);
   }
   throw new Error("서버 응답에 report가 없습니다.");
+}
+
+/** GET /api/sessions/:sessionId/retro/kpi-preview — 저장 없이 근거·인용 미리보기 */
+export async function fetchRetroKpiPreview(session: LearningSession): Promise<{
+  kpis: RetroKpi;
+  kpiBasis: string;
+  kpiEvidence: RetroKpiEvidenceBlock[];
+}> {
+  const base = apiBase();
+  if (!base) {
+    throw new Error("NEXT_PUBLIC_API_URL이 없어 미리보기를 호출할 수 없습니다.");
+  }
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(session.sessionId)}/retro/kpi-preview`,
+    { credentials: "include", headers: { Accept: "application/json" } }
+  );
+  const json: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(failureMessageFromJson(json) ?? `retro/kpi-preview ${res.status}`);
+  }
+  const data = unwrap<{ kpis: RetroKpi; kpiBasis: string; kpiEvidence: RetroKpiEvidenceBlock[] }>(
+    json
+  );
+  if (!data?.kpis || !data.kpiEvidence) {
+    throw new Error("kpi-preview 응답이 올바르지 않습니다.");
+  }
+  return data;
 }

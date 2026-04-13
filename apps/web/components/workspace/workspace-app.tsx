@@ -45,8 +45,8 @@ import {
 } from "@/lib/contract-gate-service";
 import type { ValidationResult } from "@/lib/contract-gate-service";
 import { clearContractGate, loadContractGate, saveContractGate } from "@/lib/contract-persist";
-import { fetchRetroReports, generateRetroReport } from "@/lib/retro-service";
-import type { RetroReport } from "@/lib/retro-types";
+import { fetchRetroKpiPreview, fetchRetroReports, generateRetroReport } from "@/lib/retro-service";
+import type { RetroKpiEvidenceBlock, RetroReport } from "@/lib/retro-types";
 import { clearRetroPersist, loadRetroPersist, saveRetroPersist } from "@/lib/retro-persist";
 import { fetchAgentReply } from "@/lib/chat-ai";
 import type { ChatMessage } from "@/lib/chat-types";
@@ -174,6 +174,12 @@ export function WorkspaceApp({
   const [selectedRetroId, setSelectedRetroId] = useState<string | null>(null);
   const [retroBusy, setRetroBusy] = useState(false);
   const [retroErr, setRetroErr] = useState<string | null>(null);
+  const [retroKpiPreview, setRetroKpiPreview] = useState<{
+    kpiBasis: string;
+    kpiEvidence: RetroKpiEvidenceBlock[];
+  } | null>(null);
+  const [retroKpiPreviewBusy, setRetroKpiPreviewBusy] = useState(false);
+  const [retroKpiPreviewErr, setRetroKpiPreviewErr] = useState<string | null>(null);
 
   const loadRoleGap = useCallback(async () => {
     setGapLoading(true);
@@ -487,6 +493,20 @@ export function WorkspaceApp({
       setRetroErr(e instanceof Error ? e.message : "회고 리포트 생성에 실패했습니다.");
     } finally {
       setRetroBusy(false);
+    }
+  }, [session]);
+
+  const handleRetroKpiPreview = useCallback(async () => {
+    setRetroKpiPreviewErr(null);
+    setRetroKpiPreviewBusy(true);
+    try {
+      const d = await fetchRetroKpiPreview(session);
+      setRetroKpiPreview({ kpiBasis: d.kpiBasis, kpiEvidence: d.kpiEvidence });
+    } catch (e: unknown) {
+      setRetroKpiPreviewErr(e instanceof Error ? e.message : "KPI 미리보기에 실패했습니다.");
+      setRetroKpiPreview(null);
+    } finally {
+      setRetroKpiPreviewBusy(false);
     }
   }, [session]);
 
@@ -1305,7 +1325,8 @@ export function WorkspaceApp({
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
                   <code className="rounded bg-slate-100 px-1">POST .../retro/generate</code> ·{" "}
-                  <code className="rounded bg-slate-100 px-1">GET .../retro/reports</code>
+                  <code className="rounded bg-slate-100 px-1">GET .../retro/reports</code> ·{" "}
+                  <code className="rounded bg-slate-100 px-1">GET .../retro/kpi-preview</code>
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -1316,12 +1337,70 @@ export function WorkspaceApp({
                   >
                     {retroBusy ? "생성 중…" : "회고 리포트 생성"}
                   </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    disabled={retroKpiPreviewBusy}
+                    onClick={() => void handleRetroKpiPreview()}
+                  >
+                    {retroKpiPreviewBusy ? "불러오는 중…" : "KPI·근거 미리보기 (저장 없음)"}
+                  </button>
                 </div>
                 {retroErr && (
                   <p className="mt-2 text-sm text-red-600" role="alert">
                     {retroErr}
                   </p>
                 )}
+                {retroKpiPreviewErr ? (
+                  <p className="mt-2 text-sm text-red-600" role="alert">
+                    {retroKpiPreviewErr}
+                  </p>
+                ) : null}
+                {retroKpiPreview ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-3">
+                    <h3 className="text-xs font-medium text-slate-700">미리보기 (미저장)</h3>
+                    <p className="mt-1 text-xs text-slate-600">{retroKpiPreview.kpiBasis}</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {retroKpiPreview.kpiEvidence.map((block) => (
+                        <details
+                          key={`pv-${block.key}`}
+                          className="rounded-lg border border-slate-200 bg-white p-2 text-left"
+                        >
+                          <summary className="cursor-pointer text-xs font-medium text-slate-900">
+                            {block.labelKo}{" "}
+                            <span className="text-slate-600">
+                              {block.score}
+                              {block.unit}
+                            </span>
+                          </summary>
+                          <p className="mt-2 text-[11px] leading-snug text-slate-600">{block.summary}</p>
+                          {block.citations.length > 0 ? (
+                            <ul className="mt-2 list-none space-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-700">
+                              {block.citations.map((c, i) => {
+                                const ms = Date.parse(c.timestamp);
+                                const iso = Number.isFinite(ms) ? new Date(ms).toISOString() : "";
+                                return (
+                                  <li key={i} className="rounded bg-slate-50 px-2 py-1">
+                                    {iso ? (
+                                      <time dateTime={iso} className="font-mono text-slate-500">
+                                        {c.timestamp}
+                                      </time>
+                                    ) : (
+                                      <span className="font-mono text-slate-500">{c.timestamp}</span>
+                                    )}{" "}
+                                    <span className="font-medium">{c.eventType}</span> — {c.note}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : (
+                            <p className="mt-2 text-[11px] text-slate-500">인용할 관련 이벤트가 없습니다.</p>
+                          )}
+                        </details>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 {retroReports.length > 0 && (
                   <div className="mt-4">
@@ -1373,27 +1452,71 @@ export function WorkspaceApp({
                         {sel.kpiBasis ??
                           "(구 리포트) 통합 이벤트 기반 한 줄 근거가 없습니다. 새로 생성하면 표시됩니다."}
                       </p>
-                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        {(
-                          [
-                            ["역할 균형", k.roleBalanceScore, "/100"],
-                            ["재작업률", k.reworkRatePercent, "%"],
-                            ["리뷰 반영률", k.reviewReflectionPercent, "%"],
-                            ["커뮤니케이션", k.communicationScore, "/100"]
-                          ] as const
-                        ).map(([label, val, unit]) => (
-                          <div
-                            key={label}
-                            className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center"
-                          >
-                            <div className="text-xs text-slate-500">{label}</div>
-                            <div className="text-lg font-semibold text-slate-900">
-                              {val}
-                              <span className="text-sm font-normal text-slate-500">{unit}</span>
+                      {sel.kpiEvidence && sel.kpiEvidence.length > 0 ? (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-2">
+                          {sel.kpiEvidence.map((block) => (
+                            <details
+                              key={block.key}
+                              className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-left"
+                            >
+                              <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                                {block.labelKo}{" "}
+                                <span className="text-base font-semibold tabular-nums">
+                                  {block.score}
+                                  <span className="text-xs font-normal text-slate-500">{block.unit}</span>
+                                </span>
+                              </summary>
+                              <p className="mt-2 text-[11px] leading-snug text-slate-600">{block.summary}</p>
+                              {block.citations.length > 0 ? (
+                                <ul className="mt-2 list-none space-y-1 border-t border-slate-200/80 pt-2 text-[11px] text-slate-800">
+                                  {block.citations.map((c, i) => {
+                                    const ms = Date.parse(c.timestamp);
+                                    const iso = Number.isFinite(ms) ? new Date(ms).toISOString() : "";
+                                    return (
+                                      <li key={i} className="rounded bg-white px-2 py-1 shadow-sm">
+                                        {iso ? (
+                                          <time dateTime={iso} className="font-mono text-slate-500">
+                                            {c.timestamp}
+                                          </time>
+                                        ) : (
+                                          <span className="font-mono text-slate-500">{c.timestamp}</span>
+                                        )}{" "}
+                                        <span className="font-medium">{c.eventType}</span> — {c.note}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              ) : (
+                                <p className="mt-2 text-[11px] text-slate-500">
+                                  인용할 관련 이벤트가 없습니다.
+                                </p>
+                              )}
+                            </details>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          {(
+                            [
+                              ["역할 균형", k.roleBalanceScore, "/100"],
+                              ["재작업률", k.reworkRatePercent, "%"],
+                              ["리뷰 반영률", k.reviewReflectionPercent, "%"],
+                              ["커뮤니케이션", k.communicationScore, "/100"]
+                            ] as const
+                          ).map(([label, val, unit]) => (
+                            <div
+                              key={label}
+                              className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center"
+                            >
+                              <div className="text-xs text-slate-500">{label}</div>
+                              <div className="text-lg font-semibold text-slate-900">
+                                {val}
+                                <span className="text-sm font-normal text-slate-500">{unit}</span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                       <div>
                         <h3 className="text-xs font-medium text-slate-600">다음 스프린트 행동 3개</h3>
                         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-800">

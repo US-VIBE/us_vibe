@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["test/**/*.e2e.ts"],
+    include: ["test/**/*.e2e.ts", "test/unit/**/*.spec.ts"],
     fileParallelism: false,
     testTimeout: 60000,
     hookTimeout: 60000,

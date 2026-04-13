@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { AuthService } from "./auth.service";
 import { JwtAuthGuard } from "./jwt-auth.guard";
@@ -9,6 +10,7 @@ export class AuthController {
 
   @Post("register")
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async register(
     @Body() body: { email?: string; password?: string }
   ): Promise<{ accessToken: string }> {
@@ -16,6 +18,7 @@ export class AuthController {
   }
 
   @Post("login")
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   async login(
     @Body() body: { email?: string; password?: string }
   ): Promise<{ accessToken: string }> {

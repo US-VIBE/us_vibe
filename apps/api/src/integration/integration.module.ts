@@ -11,11 +11,13 @@ import { ReportService } from "./report.service";
 import { EventPublisherSqlite } from "./event-publisher.sqlite";
 import { EVENT_PUBLISHER } from "./event-publisher.interface";
 import { IntegrationEventsController } from "./integration-events.controller";
+import { IntegrationWebhookRoutesController } from "./integration-webhook-routes.controller";
 import { IntegrationStreamController } from "./integration-stream.controller";
 import { IntegrationEventFanoutService } from "./integration-event-fanout.service";
 import { IntegrationTimelineBridgeService } from "./integration-timeline-bridge.service";
 import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.service";
+import { IntegrationRedisReplayQueueService } from "./integration-redis-replay-queue.service";
 import { WebhookPrValidationService } from "./webhook-pr-validation.service";
 
 @Module({
@@ -25,7 +27,8 @@ import { WebhookPrValidationService } from "./webhook-pr-validation.service";
     VfsController,
     ValidationController,
     IntegrationEventsController,
-    IntegrationStreamController
+    IntegrationStreamController,
+    IntegrationWebhookRoutesController
   ],
   providers: [
     ValidationService,
@@ -33,6 +36,7 @@ import { WebhookPrValidationService } from "./webhook-pr-validation.service";
     ReportService,
     CodeDeltaRunnerService,
     IntegrationRedisPubSubService,
+    IntegrationRedisReplayQueueService,
     WebhookPrValidationService,
     IntegrationEventFanoutService,
     IntegrationTimelineBridgeService,

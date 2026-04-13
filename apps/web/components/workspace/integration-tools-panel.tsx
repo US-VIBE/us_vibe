@@ -10,15 +10,19 @@ import {
   type VfsDiffPayload
 } from "@/lib/vfs-api";
 import {
-  buildMergedTimelineRows,
   fetchUnifiedTimeline,
-  type UnifiedTimelineData
+  getMergedRowsForDisplay,
+  type UnifiedTimelineData,
+  type UnifiedTimelineQuery
 } from "@/lib/unified-timeline-api";
 import { startIntegrationSseStream } from "@/lib/integration-sse";
 import {
   fetchInAppNotifications,
   fetchIntegrationHints,
   fetchProjectState,
+  fetchWebhookRoutes,
+  registerWebhookRoute,
+  deleteWebhookRoute,
   fetchWorkspaceGates,
   patchProjectState,
   patchSessionHumanRoles,
@@ -27,6 +31,7 @@ import {
   uploadWorkspaceArtifact,
   type IntegrationHints,
   type ProjectStatePayload,
+  type WebhookRouteRow,
   type WorkspaceGates
 } from "@/lib/workspace-collab-api";
 import type { LearningSession } from "@/lib/session-types";
@@ -79,6 +84,16 @@ export function IntegrationToolsPanel({
   const [uniSummary, setUniSummary] = useState<string | null>(null);
   const [uniData, setUniData] = useState<UnifiedTimelineData | null>(null);
   const [uniTab, setUniTab] = useState<"merged" | "sqlite" | "postgres">("merged");
+  const [uniSortOrder, setUniSortOrder] = useState<"asc" | "desc">("desc");
+  const [uniSources, setUniSources] = useState<UnifiedTimelineQuery["sources"]>("both");
+  const [uniTypes, setUniTypes] = useState("");
+  const [uniLiveMsg, setUniLiveMsg] = useState<string | null>(null);
+
+  const [routeRepoDraft, setRouteRepoDraft] = useState("");
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeErr, setRouteErr] = useState<string | null>(null);
+  const [routeMsg, setRouteMsg] = useState<string | null>(null);
+  const [routeList, setRouteList] = useState<WebhookRouteRow[]>([]);
 
   const focusUniTab = useCallback((id: (typeof UNI_TIMELINE_TABS)[number]) => {
     setUniTab(id);
@@ -251,9 +266,16 @@ export function IntegrationToolsPanel({
   const loadUnified = () => {
     setUniLoading(true);
     setUniErr(null);
-    fetchUnifiedTimeline(apiBaseUrl, sid, 40)
+    const q: UnifiedTimelineQuery = {
+      sortOrder: uniSortOrder,
+      sources: uniSources,
+      types: uniTypes.trim() || undefined
+    };
+    fetchUnifiedTimeline(apiBaseUrl, sid, 40, q)
       .then((d) => {
         setUniData(d);
+        const mergedN = getMergedRowsForDisplay(d).length;
+        setUniLiveMsg(`병합 목록 ${mergedN}건(정렬 ${uniSortOrder}, 소스 ${uniSources ?? "both"})`);
         setUniSummary(
           `SQLite ${d.integrationEvents.length}건 · Postgres ${d.postgresTimeline.length}건` +
             (d.postgresNote ? ` — ${d.postgresNote}` : "")
@@ -261,6 +283,27 @@ export function IntegrationToolsPanel({
       })
       .catch((e: unknown) => setUniErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setUniLoading(false));
+  };
+
+  const refreshRoutes = () => {
+    setRouteErr(null);
+    fetchWebhookRoutes(apiBaseUrl)
+      .then(setRouteList)
+      .catch((e: unknown) => setRouteErr(e instanceof Error ? e.message : String(e)));
+  };
+
+  const submitRoute = () => {
+    setRouteBusy(true);
+    setRouteErr(null);
+    setRouteMsg(null);
+    registerWebhookRoute(apiBaseUrl, routeRepoDraft, sid)
+      .then((r) => {
+        setRouteMsg(`등록됨: ${r.repoFullName} → ${r.sessionId}`);
+        setRouteRepoDraft("");
+        refreshRoutes();
+      })
+      .catch((e: unknown) => setRouteErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setRouteBusy(false));
   };
 
   const saveProjectStateGoal = () => {
@@ -342,7 +385,9 @@ export function IntegrationToolsPanel({
         <h3 className="font-semibold text-indigo-950">GitHub 웹훅 · 세션 ID · 산출물 업로드</h3>
         <p className="mt-1 text-xs text-indigo-900/80">
           API 환경에 아래 스니펫을 넣고 GitHub 웹훅을 연결하면 PR 검증 이벤트가 이 워크스페이스 세션과 같은{" "}
-          <code className="rounded bg-white px-1">sessionId</code>로 기록됩니다.
+          <code className="rounded bg-white px-1">sessionId</code>로 기록됩니다. 여러 사용자가 같은 API를 쓸 때는
+          아래 <strong className="font-medium">저장소 라우팅</strong>을 등록하면 <code className="rounded bg-white px-1">repository.full_name</code>으로 세션이
+          자동 분기됩니다.
         </p>
         {hintsErr ? <p className="mt-2 text-xs text-red-600">{hintsErr}</p> : null}
         {hints ? (
@@ -395,6 +440,83 @@ export function IntegrationToolsPanel({
                 </a>
               </p>
             ) : null}
+            <div className="mt-3 border-t border-indigo-200 pt-3">
+              <p className="text-xs font-medium text-indigo-950">저장소 → 세션 라우팅</p>
+              <p className="mt-1 text-[11px] leading-snug text-indigo-900/85">
+                값 예: <code className="rounded bg-white px-0.5">myorg/myrepo</code> (GitHub{" "}
+                <code className="rounded bg-white px-0.5">repository.full_name</code>과 동일). 미등록 시 서버{" "}
+                <code className="rounded bg-white px-0.5">INTEGRATION_WEBHOOK_SESSION_ID</code> 폴백.
+              </p>
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <label className="block text-[11px] text-indigo-900">
+                  owner/repo
+                  <input
+                    className="mt-0.5 block w-52 rounded border border-indigo-200 bg-white px-2 py-1 font-mono text-xs text-slate-900"
+                    value={routeRepoDraft}
+                    onChange={(e) => setRouteRepoDraft(e.target.value)}
+                    placeholder="acme/api-service"
+                    disabled={routeBusy}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="rounded bg-indigo-800 px-3 py-1 text-xs text-white disabled:opacity-50"
+                  disabled={routeBusy || !routeRepoDraft.trim()}
+                  onClick={() => void submitRoute()}
+                >
+                  현재 세션에 등록
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-indigo-600 bg-white px-3 py-1 text-xs text-indigo-900"
+                  onClick={() => void refreshRoutes()}
+                >
+                  내 라우트 목록
+                </button>
+              </div>
+              {routeErr ? (
+                <p className="mt-2 text-xs text-red-600" role="alert">
+                  {routeErr}
+                </p>
+              ) : null}
+              {routeMsg ? <p className="mt-2 text-xs text-emerald-800">{routeMsg}</p> : null}
+              {routeList.length > 0 ? (
+                <ul className="mt-2 max-h-24 space-y-1 overflow-y-auto text-[11px] text-indigo-950">
+                  {routeList.map((r) => (
+                    <li
+                      key={r.repoFullName}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded bg-white/90 px-2 py-1 font-mono"
+                    >
+                      <span>
+                        {r.repoFullName} → {r.sessionId}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] text-red-900 hover:bg-red-100 disabled:opacity-50"
+                        disabled={routeBusy}
+                        onClick={() => {
+                          if (!window.confirm(`라우트 삭제: ${r.repoFullName}?`)) return;
+                          setRouteBusy(true);
+                          setRouteErr(null);
+                          setRouteMsg(null);
+                          void deleteWebhookRoute(apiBaseUrl, r.repoFullName)
+                            .then((d) => {
+                              setRouteMsg(d.deleted ? `삭제됨: ${d.repoFullName}` : `없음: ${d.repoFullName}`);
+                              refreshRoutes();
+                            })
+                            .catch((e: unknown) =>
+                              setRouteErr(e instanceof Error ? e.message : String(e))
+                            )
+                            .finally(() => setRouteBusy(false));
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
             <div className="mt-3 border-t border-indigo-200 pt-3">
               <p className="text-xs font-medium text-indigo-950">ERD·스케치 (PNG/JPEG/WebP/PDF, 최대 5MB)</p>
               <input
@@ -534,8 +656,51 @@ export function IntegrationToolsPanel({
           <code className="rounded bg-white px-1">GET /api/integration/unified-timeline</code> ·{" "}
           <strong className="font-medium text-slate-600">병합</strong> 탭은 SQLite{" "}
           <code className="rounded bg-white px-1">timestamp</code>와 Postgres{" "}
-          <code className="rounded bg-white px-1">createdAt</code>을 합쳐 최신순으로 정렬합니다. 동기화는{" "}
+          <code className="rounded bg-white px-1">createdAt</code>을 합쳐 정렬합니다. 쿼리:{" "}
+          <code className="rounded bg-white px-1">sortOrder</code>, <code className="rounded bg-white px-1">sources</code>,{" "}
+          <code className="rounded bg-white px-1">types</code>. 동기화는{" "}
           <code className="rounded bg-white px-1">docs/integration-sandbox/session-id-sync.md</code>
+        </p>
+        <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
+          <label className="text-slate-600">
+            정렬
+            <select
+              className="ml-1 rounded border border-slate-200 bg-white px-2 py-1"
+              value={uniSortOrder}
+              onChange={(e) => setUniSortOrder(e.target.value === "asc" ? "asc" : "desc")}
+            >
+              <option value="desc">최신순 (desc)</option>
+              <option value="asc">과거순 (asc)</option>
+            </select>
+          </label>
+          <label className="text-slate-600">
+            소스
+            <select
+              className="ml-1 rounded border border-slate-200 bg-white px-2 py-1"
+              value={uniSources ?? "both"}
+              onChange={(e) =>
+                setUniSources(
+                  e.target.value === "sqlite" || e.target.value === "postgres" ? e.target.value : "both"
+                )
+              }
+            >
+              <option value="both">SQLite + Postgres</option>
+              <option value="sqlite">SQLite만</option>
+              <option value="postgres">Postgres만</option>
+            </select>
+          </label>
+          <label className="min-w-[12rem] text-slate-600">
+            유형 필터 (쉼표)
+            <input
+              className="mt-0.5 block w-full rounded border border-slate-200 bg-white px-2 py-1 font-mono text-[11px]"
+              value={uniTypes}
+              onChange={(e) => setUniTypes(e.target.value)}
+              placeholder="PR_, VALIDATION, code_delta"
+            />
+          </label>
+        </div>
+        <p className="mt-1 text-[11px] text-slate-500" aria-live="polite">
+          {uniLiveMsg ?? "조회 후 병합 건수가 여기 표시됩니다."}
         </p>
         <button
           type="button"
@@ -567,12 +732,12 @@ export function IntegrationToolsPanel({
                 aria-selected={uniTab === "merged"}
                 aria-controls="uni-panel-timeline"
                 tabIndex={uniTab === "merged" ? 0 : -1}
-                aria-label={`병합 타임라인, SQLite ${uniData.integrationEvents.length}건과 Postgres ${uniData.postgresTimeline.length}건 통합`}
+                aria-label={`병합 타임라인, ${getMergedRowsForDisplay(uniData).length}건 표시`}
                 className={`px-2 py-1 ${uniTab === "merged" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("merged")}
                 onKeyDown={(e) => onUniTabKeyDown(e, "merged")}
               >
-                병합 ({uniData.integrationEvents.length + uniData.postgresTimeline.length})
+                병합 ({getMergedRowsForDisplay(uniData).length})
               </button>
               <button
                 type="button"
@@ -616,7 +781,7 @@ export function IntegrationToolsPanel({
               className="mt-2 max-h-48 list-none space-y-1 overflow-y-auto text-[11px] text-slate-700"
             >
               {uniTab === "merged"
-                ? buildMergedTimelineRows(uniData).map((row) => (
+                ? getMergedRowsForDisplay(uniData).map((row) => (
                     <li key={row.stableKey} className="rounded border border-slate-100 bg-white px-2 py-1">
                       <span className="sr-only">{row.source === "sqlite" ? "SQLite 출처" : "Postgres 출처"}</span>
                       <span

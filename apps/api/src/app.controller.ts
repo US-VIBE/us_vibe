@@ -1,8 +1,10 @@
 import { getBackendPackageLabel, RevokedTokenStore } from "@us-vibe/backend";
 import { Controller, Get } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
+import { SkipThrottle } from "@nestjs/throttler";
 import type { DataSource } from "typeorm";
 
+@SkipThrottle({ default: true })
 @Controller()
 export class AppController {
   constructor(

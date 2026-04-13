@@ -188,7 +188,22 @@ nano ~/.ssh/authorized_keys
 
 ---
 
-## 12. 정리
+## 12. HTTPS (리버스 프록시 권장)
+
+브라우저에서 **JWT·세션 쿠키**가 오가므로, 공인 서비스는 **HTTPS 종단**을 두는 것이 좋습니다.
+
+1. **도메인**을 EC2 퍼블릭 IP에 **A 레코드**로 연결합니다.  
+2. 아래 중 하나로 **TLS 종료**를 구성합니다.  
+   - **Caddy** 또는 **nginx**를 같은 EC2에 두고, `localhost:3000`(웹)·`localhost:4000`(API)으로 **리버스 프록시**  
+   - 또는 **AWS Application Load Balancer + ACM** 인증서로 TLS 종료 후 EC2로 전달  
+3. `deploy/.env.deploy`의 **`NEXT_PUBLIC_API_BASE_URL`**, **`API_CORS_ORIGINS`**를 **`https://도메인`** 형태로 맞춥니다.  
+4. GitHub 웹훅 URL도 **`https://.../webhooks/github`** 로 등록하고, **배달 IP 허용 목록**(`WEBHOOK_ALLOWLIST`)이 프록시 뒤 IP를 가리키면 안 되므로, **GitHub 공식 훅 IP 대역**([api.github.com/meta](https://api.github.com/meta)의 `hooks`)을 유지합니다.
+
+자세한 프로덕션 환경 변수는 [docs/api/production-environment.md](../api/production-environment.md)를 참고하세요.
+
+---
+
+## 13. 정리
 
 | 항목 | 값 |
 |------|-----|

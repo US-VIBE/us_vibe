@@ -4,6 +4,35 @@ import type { AuthedRequest } from "../auth/authed-request";
 import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import { SessionsService } from "../sessions/sessions.service";
+import {
+  filterIntegrationEventsForTimeline,
+  filterPostgresTimelineUnknown,
+  mergeUnifiedTimelineRows,
+  parseCommaTokens,
+  parseSortOrder,
+  parseUnifiedTimelineSources,
+  type UnifiedMergedRow
+} from "./unified-timeline-merge.util";
+
+function coercePostgresTimelineRows(
+  rows: unknown[]
+): Array<{ id: string; eventType: string; createdAt: string }> {
+  const out: Array<{ id: string; eventType: string; createdAt: string }> = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") {
+      continue;
+    }
+    const o = r as Record<string, unknown>;
+    if (
+      typeof o.id === "string" &&
+      typeof o.eventType === "string" &&
+      typeof o.createdAt === "string"
+    ) {
+      out.push({ id: o.id, eventType: o.eventType, createdAt: o.createdAt });
+    }
+  }
+  return out;
+}
 
 /** 통합 이벤트 스트림 조회 (폴링·디버깅·다른 서비스 BFF) */
 @Controller("api/integration")
@@ -36,7 +65,10 @@ export class IntegrationEventsController {
   async unifiedTimeline(
     @Req() req: AuthedRequest,
     @Query("sessionId") sessionId?: string,
-    @Query("limit") limit?: string
+    @Query("limit") limit?: string,
+    @Query("sortOrder") sortOrder?: string,
+    @Query("sources") sources?: string,
+    @Query("types") types?: string
   ): Promise<{
     ok: boolean;
     code?: string;
@@ -47,6 +79,7 @@ export class IntegrationEventsController {
       postgresTimeline: unknown[];
       postgresNote: string | null;
       bridgeHint: string;
+      mergedTimeline: UnifiedMergedRow[];
     };
   }> {
     const sid = sessionId?.trim() ?? "";
@@ -74,15 +107,35 @@ export class IntegrationEventsController {
       }
     }
 
+    const typeTokens = parseCommaTokens(types);
+    const sourceFilter = parseUnifiedTimelineSources(sources);
+    let integrationEventsFiltered = filterIntegrationEventsForTimeline(
+      integrationEvents,
+      typeTokens
+    );
+    let postgresTimelineFiltered = filterPostgresTimelineUnknown(postgresTimeline, typeTokens);
+    if (sourceFilter === "sqlite") {
+      postgresTimelineFiltered = [];
+    } else if (sourceFilter === "postgres") {
+      integrationEventsFiltered = [];
+    }
+    const pgRows = coercePostgresTimelineRows(postgresTimelineFiltered);
+    const mergedTimeline = mergeUnifiedTimelineRows(integrationEventsFiltered, pgRows, {
+      sources: "both",
+      typeTokens: [],
+      sortOrder: parseSortOrder(sortOrder)
+    });
+
     return {
       ok: true,
       data: {
         sessionId: sid,
-        integrationEvents,
-        postgresTimeline,
+        integrationEvents: integrationEventsFiltered,
+        postgresTimeline: postgresTimelineFiltered,
         postgresNote,
         bridgeHint:
-          "event-vocabulary-map: IntegrationEvent.sessionId가 UUID일 때만 collaboration_events로 브리지됩니다."
+          "event-vocabulary-map: IntegrationEvent.sessionId가 UUID일 때만 collaboration_events로 브리지됩니다.",
+        mergedTimeline
       }
     };
   }

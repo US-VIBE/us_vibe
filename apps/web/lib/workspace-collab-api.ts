@@ -243,3 +243,65 @@ export async function patchProjectState(
   }
   return body.data;
 }
+
+export type WebhookRouteRow = {
+  repoFullName: string;
+  sessionId: string;
+  ownerUserId: string;
+  updatedAt: string;
+};
+
+export async function fetchWebhookRoutes(apiBase: string): Promise<WebhookRouteRow[]> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(`${base}/api/integration/webhook-routes`);
+  if (!res.ok) {
+    throw new Error(`webhook-routes GET ${res.status}`);
+  }
+  const body = (await res.json()) as { ok?: boolean; data?: { routes: WebhookRouteRow[] } };
+  if (!body?.ok || !body.data?.routes) {
+    throw new Error("webhook-routes invalid");
+  }
+  return body.data.routes;
+}
+
+export async function deleteWebhookRoute(
+  apiBase: string,
+  repoFullName: string
+): Promise<{ deleted: boolean; repoFullName: string }> {
+  const base = apiBase.replace(/\/$/, "");
+  const q = new URLSearchParams({ repoFullName });
+  const res = await apiFetch(`${base}/api/integration/webhook-routes?${q}`, {
+    method: "DELETE"
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    data?: { deleted: boolean; repoFullName: string };
+    message?: string;
+  };
+  if (!res.ok || !body?.ok || !body.data) {
+    throw new Error(body.message ?? `webhook-routes DELETE ${res.status}`);
+  }
+  return body.data;
+}
+
+export async function registerWebhookRoute(
+  apiBase: string,
+  repoFullName: string,
+  sessionId: string
+): Promise<{ repoFullName: string; sessionId: string }> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(`${base}/api/integration/webhook-routes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repoFullName, sessionId })
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    data?: { repoFullName: string; sessionId: string };
+    message?: string;
+  };
+  if (!res.ok || !body?.ok || !body.data) {
+    throw new Error(body.message ?? `webhook-routes POST ${res.status}`);
+  }
+  return body.data;
+}

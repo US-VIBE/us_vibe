@@ -2,6 +2,8 @@ import { Controller, Get, Param, Logger, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { PrValidationStatusEnvelope } from "../persistence/workspace-persistence.service";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import type { RedisReplayQueueSnapshot } from "./integration-redis-replay-queue.service";
+import { IntegrationRedisReplayQueueService } from "./integration-redis-replay-queue.service";
 import { WebhookPrValidationService, QueueStatusInfo } from "./webhook-pr-validation.service";
 
 interface ApiResponse<T> {
@@ -19,6 +21,7 @@ export class ValidationController {
   constructor(
     private readonly workspace: WorkspacePersistenceService,
     private readonly prValidationService: WebhookPrValidationService,
+    private readonly redisReplayQueue: IntegrationRedisReplayQueueService,
   ) {}
 
   @Get("status/:prNumber")
@@ -41,12 +44,20 @@ export class ValidationController {
    * GET /api/validation/queue-status
    */
   @Get("queue-status")
-  async getQueueStatus(): Promise<ApiResponse<QueueStatusInfo & { localMetrics: { jobsCompleted: number; jobsFailed: number; lastJobDurationMs: number } }>> {
+  async getQueueStatus(): Promise<
+    ApiResponse<
+      QueueStatusInfo & {
+        localMetrics: { jobsCompleted: number; jobsFailed: number; lastJobDurationMs: number };
+        redisReplayQueue: RedisReplayQueueSnapshot;
+      }
+    >
+  > {
     const status = await this.prValidationService.getQueueStatus();
     const localMetrics = this.prValidationService.getLocalMetrics();
+    const redisReplayQueue = await this.redisReplayQueue.getQueueSnapshot();
     return {
       ok: true,
-      data: { ...status, localMetrics },
+      data: { ...status, localMetrics, redisReplayQueue },
     };
   }
 }

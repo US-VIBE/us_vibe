@@ -9,6 +9,7 @@ import {
   UseGuards
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { AuthService } from "./auth.service";
 import type { JwtPayload } from "./auth.types";
@@ -28,6 +29,7 @@ export class ApiAuthController {
 
   @Post("register")
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async register(@Body() body: { email?: string; password?: string }) {
     const { accessToken } = await this.auth.register(
       String(body.email ?? ""),
@@ -37,6 +39,7 @@ export class ApiAuthController {
   }
 
   @Post("login")
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   async login(@Body() body: { email?: string; password?: string }) {
     const { accessToken } = await this.auth.login(
       String(body.email ?? ""),
