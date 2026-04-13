@@ -2,10 +2,12 @@
 
 export type Proficiency = "beginner" | "intermediate" | "advanced";
 
+/** 온보딩에서 선택하는 구현 집중축 — API `POST /sessions`의 learnerRole 문자열과 별도로 저장 */
+export type LearnerRole = "backend_developer" | "frontend_developer";
+
 export interface LearningSession {
   sessionId: string;
-  /** 문서: 학습자 역할은 Backend Developer 고정 */
-  learnerRole: "backend_developer";
+  learnerRole: LearnerRole;
   goal: string;
   topic: string;
   /** 시나리오 팩 id (예: login-mvp) */
