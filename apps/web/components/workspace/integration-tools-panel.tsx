@@ -344,8 +344,34 @@ export function IntegrationToolsPanel({
               >
                 스니펫 복사
               </button>
+              {hints.recommendedServerEnvLine ? (
+                <button
+                  type="button"
+                  className="rounded border border-indigo-800 bg-white px-3 py-1 text-xs text-indigo-900"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(hints.recommendedServerEnvLine);
+                    setArtifactMsg("서버 .env 한 줄(INTEGRATION_WEBHOOK_SESSION_ID)을 복사했습니다.");
+                  }}
+                >
+                  서버 .env 한 줄만 복사
+                </button>
+              ) : null}
               <span className="text-xs text-indigo-800">{hints.note}</span>
             </div>
+            {hints.bffSyncNote ? (
+              <p className="text-[11px] leading-snug text-indigo-900/90">{hints.bffSyncNote}</p>
+            ) : null}
+            {hints.simulateOnlyPath ? (
+              <p className="text-[11px] text-indigo-900/80">
+                워크스페이스 없이 시뮬만:{" "}
+                <a
+                  className="font-medium text-indigo-950 underline"
+                  href={hints.simulateOnlyPath}
+                >
+                  {hints.simulateOnlyPath}
+                </a>
+              </p>
+            ) : null}
             <div className="mt-3 border-t border-indigo-200 pt-3">
               <p className="text-xs font-medium text-indigo-950">ERD·스케치 (PNG/JPEG/WebP/PDF, 최대 5MB)</p>
               <input

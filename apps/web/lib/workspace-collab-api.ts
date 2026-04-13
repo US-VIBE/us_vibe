@@ -135,6 +135,11 @@ export async function fetchProjectState(
 
 export type IntegrationHints = {
   integrationWebhookSessionId: string;
+  /** API 서버 .env 한 줄 — Railway 등에 붙여넣기 */
+  recommendedServerEnvLine: string;
+  bffSyncNote: string;
+  /** 워크스페이스 없이 Postgres 시뮬만 쓸 때의 웹 경로 */
+  simulateOnlyPath: string;
   envSnippet: string;
   docPath: string;
   note: string;
