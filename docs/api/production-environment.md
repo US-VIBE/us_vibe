@@ -23,3 +23,10 @@
 ## TLS
 
 HTTP만 노출하면 토큰이 평문으로 전송됩니다. [배포 문서의 HTTPS 절](../deploy-aws-ec2-free-tier.md#https-리버스-프록시-권장)을 따르세요.
+
+## 선택 (런타임 동작)
+
+| 변수 | 용도 |
+|------|------|
+| `EXPOSE_WEBHOOK_SECURITY_HEALTH` | `1`/`true`일 때만 프로덕션에서 `GET /health/webhook-security`가 200을 반환합니다. 미설정이면 404. |
+| `REFRESH_COOKIE_SAMESITE` | HttpOnly 리프레시 쿠키 SameSite (`lax` 기본, 크로스 사이트 API는 `none` + HTTPS). |

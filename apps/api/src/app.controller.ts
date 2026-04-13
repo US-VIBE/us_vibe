@@ -1,8 +1,13 @@
 import { getBackendPackageLabel, RevokedTokenStore } from "@us-vibe/backend";
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, NotFoundException } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { SkipThrottle } from "@nestjs/throttler";
 import type { DataSource } from "typeorm";
+
+function envFlagTrue(value: string | undefined): boolean {
+  const v = value?.trim().toLowerCase();
+  return v === "1" || v === "true";
+}
 
 @SkipThrottle({ default: true })
 @Controller()
@@ -56,6 +61,12 @@ export class AppController {
       trustProxyLikely: boolean;
     };
   } {
+    if (
+      process.env.NODE_ENV === "production" &&
+      !envFlagTrue(process.env.EXPOSE_WEBHOOK_SECURITY_HEALTH)
+    ) {
+      throw new NotFoundException();
+    }
     const secretConfigured = Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim());
     const requireSig =
       process.env.GITHUB_WEBHOOK_REQUIRE_SIGNATURE?.trim().toLowerCase() === "1" ||

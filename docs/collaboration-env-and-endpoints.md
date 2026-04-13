@@ -194,7 +194,7 @@ IP는 보조 방어이고, **본인 확인은 HMAC** 이다. GitHub 웹훅에 `G
 
 #### 배포 후 스모크: `GET /health/webhook-security` (비밀 미노출)
 
-운영·스테이징 API 베이스 URL에 대해 아래를 주기적으로 확인한다. 응답은 시크릿 값 없이 **모드·플래그만** 노출한다([`app.controller.ts`](../apps/api/src/app.controller.ts)).
+`NODE_ENV=production`에서는 기본 **404**이며, 스모크가 필요할 때만 `EXPOSE_WEBHOOK_SECURITY_HEALTH=1`을 설정한다. 응답은 시크릿 값 없이 **모드·플래그만** 노출한다([`app.controller.ts`](../apps/api/src/app.controller.ts)).
 
 ```bash
 curl -sS "https://<API_HOST>/health/webhook-security" | jq .
