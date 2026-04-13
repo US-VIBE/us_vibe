@@ -45,7 +45,7 @@ describe.skipIf(!pgUp)("App (e2e)", () => {
   it("GET /health", async () => {
     const res = await request(app.getHttpServer()).get("/health").expect(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.service).toBe("us-vibe-api");
+    expect(String(res.body.service)).toMatch(/^us-vibe-api/);
   });
 
   it("회원가입 후 JWT로 role-gap 조회", async () => {

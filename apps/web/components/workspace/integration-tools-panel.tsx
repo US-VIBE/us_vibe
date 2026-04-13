@@ -193,7 +193,7 @@ export function IntegrationToolsPanel({
     }
     const ac = new AbortController();
     setSseErr(null);
-    startIntegrationSseStream(apiBaseUrl, (raw) => {
+    startIntegrationSseStream(apiBaseUrl, sid, (raw) => {
       let line = raw.slice(0, 200);
       try {
         const j = JSON.parse(raw) as { type?: string };
@@ -213,7 +213,7 @@ export function IntegrationToolsPanel({
       }
     });
     return () => ac.abort();
-  }, [apiBaseUrl, sseOn, onIntegrationSseLine]);
+  }, [apiBaseUrl, sid, sseOn, onIntegrationSseLine]);
 
   const loadValidation = () => {
     const n = parseInt(prInput, 10);
@@ -848,8 +848,10 @@ export function IntegrationToolsPanel({
       <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
         <h3 className="font-semibold text-slate-800">Thought Stream (SSE)</h3>
         <p className="mt-1 text-xs text-slate-500">
-          <code className="rounded bg-white px-1">GET /api/integration/stream</code> · Redis 없으면
-          heartbeat만 옵니다.
+          <code className="rounded bg-white px-1">
+            GET /api/integration/stream?sessionId=…
+          </code>{" "}
+          · Redis 없으면 heartbeat만 옵니다.
         </p>
         <label className="mt-2 flex items-center gap-2 text-xs">
           <input type="checkbox" checked={sseOn} onChange={(e) => setSseOn(e.target.checked)} />

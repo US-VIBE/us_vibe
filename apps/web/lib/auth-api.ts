@@ -68,6 +68,20 @@ function unwrapAuth(json: unknown): AuthState | null {
   };
 }
 
+/** 리프레시 쿠키로 액세스 토큰 재발급(회전). 실패 시 null. */
+export async function refreshAuthSession(): Promise<AuthState | null> {
+  const base = apiBase();
+  if (!base) return null;
+  const res = await fetch(`${base}/api/auth/refresh`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" }
+  });
+  const json: unknown = await res.json().catch(() => null);
+  if (!res.ok || !json) return null;
+  return unwrapAuth(json);
+}
+
 /** 토큰 유효성 확인 (API 연동 모드) */
 export async function fetchAuthMe(): Promise<AuthUser | null> {
   const base = apiBase();

@@ -35,6 +35,12 @@ export class JwtAuthGuard implements CanActivate {
         message: "Invalid or expired access token"
       });
     }
+    if (payload.tokenUse === "refresh") {
+      throw new UnauthorizedException({
+        code: "AUTH_INVALID_TOKEN",
+        message: "Access token required"
+      });
+    }
     if (await this.revokedTokens.isRevoked(payload.jti)) {
       throw new UnauthorizedException({
         code: "TOKEN_REVOKED",

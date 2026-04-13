@@ -15,7 +15,7 @@ import { UsersController } from "./users.controller";
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET ?? "dev-insecure-secret",
-      signOptions: { expiresIn: "7d" }
+      signOptions: { expiresIn: "15m" }
     })
   ],
   controllers: [AuthController, UsersController, ApiAuthController],

@@ -16,6 +16,65 @@ import type {
   ValidationResult,
 } from "../../../../specs/data-model/types";
 
+type ArtifactFileKind = "png" | "jpeg" | "webp" | "pdf";
+
+function detectArtifactFileKind(buffer: Buffer): ArtifactFileKind | null {
+  if (buffer.length < 12) {
+    return null;
+  }
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "png";
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "jpeg";
+  }
+  if (
+    buffer.slice(0, 4).toString("ascii") === "RIFF" &&
+    buffer.slice(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "webp";
+  }
+  if (buffer.length >= 5 && buffer.slice(0, 5).toString("ascii") === "%PDF-") {
+    return "pdf";
+  }
+  return null;
+}
+
+function canonicalMimeForArtifactKind(k: ArtifactFileKind): string {
+  switch (k) {
+    case "png":
+      return "image/png";
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    case "pdf":
+      return "application/pdf";
+  }
+}
+
+function extensionForArtifactKind(k: ArtifactFileKind): string {
+  switch (k) {
+    case "png":
+      return ".png";
+    case "jpeg":
+      return ".jpg";
+    case "webp":
+      return ".webp";
+    case "pdf":
+      return ".pdf";
+  }
+}
+
 /** PR 리뷰 스냅샷 — pr-review.controller와 동일 형태 */
 export type PrCommentStatus = "pending" | "addressed" | "deferred" | "needs_clarification";
 
@@ -701,21 +760,20 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     if (input.buffer.length > maxBytes) {
       throw new Error("ARTIFACT_TOO_LARGE");
     }
-    const allowed =
-      /^image\/(png|jpeg|webp)$|^application\/pdf$/i.test(input.mime) ||
-      input.mime === "image/jpg";
-    if (!allowed) {
-      throw new Error("ARTIFACT_MIME_NOT_ALLOWED");
+    const detected = detectArtifactFileKind(input.buffer);
+    if (!detected) {
+      throw new Error("ARTIFACT_SIGNATURE_INVALID");
     }
+    const mime = canonicalMimeForArtifactKind(detected);
 
     const id = crypto.randomUUID();
-    const ext = path.extname(input.originalName) || (input.mime.includes("pdf") ? ".pdf" : ".bin");
+    const ext = extensionForArtifactKind(detected);
     const dir = path.join(this.artifactStorageRoot(), input.sessionId);
     fs.mkdirSync(dir, { recursive: true });
     const storedPath = path.join(dir, `${id}${ext}`);
     fs.writeFileSync(storedPath, input.buffer);
 
-    const rubric = this.evaluateArtifactRubric(input.mime, input.buffer.length);
+    const rubric = this.evaluateArtifactRubric(mime, input.buffer.length);
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
@@ -727,7 +785,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         input.sessionId,
         input.kind,
         input.originalName,
-        input.mime,
+        mime,
         input.buffer.length,
         storedPath,
         JSON.stringify(rubric),
@@ -738,7 +796,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       sessionId: input.sessionId,
       kind: input.kind,
       originalName: input.originalName,
-      mime: input.mime,
+      mime,
       sizeBytes: input.buffer.length,
       storedPath,
       rubric,

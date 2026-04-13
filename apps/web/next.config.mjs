@@ -8,6 +8,19 @@ const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname, "../.."),
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" }
+        ]
+      }
+    ];
+  },
   /** `webpack` 훅과 함께 두면 Next 16 기본 Turbopack 빌드가 구성 충돌로 실패하지 않도록 한다. */
   turbopack: {},
   /** OneDrive·iCloud 등 동기화 폴더에서 기본 감시가 “파일 변경”을 반복 인식하면 `/`가 끊임없이 다시 컴파일될 수 있음 → `next dev --webpack`일 때 폴링·무시로 완화. */

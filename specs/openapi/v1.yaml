@@ -81,6 +81,8 @@ paths:
                         type: integer
                       trustProxyLikely:
                         type: boolean
+        "404":
+          description: Not exposed in production unless EXPOSE_WEBHOOK_SECURITY_HEALTH=1
   /auth/register:
     post:
       summary: Register a user
@@ -156,6 +158,45 @@ paths:
                     enum: [true]
         "401":
           description: Missing, invalid, or revoked token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractError"
+  /api/auth/refresh:
+    post:
+      summary: Issue new access token using HttpOnly refresh cookie (rotation)
+      responses:
+        "200":
+          description: New access token and user envelope
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, data]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: object
+                    required: [accessToken, user]
+                    properties:
+                      accessToken:
+                        type: string
+                      user:
+                        type: object
+                        required: [id, email, role]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          email:
+                            type: string
+                            format: email
+                          role:
+                            type: string
+        "401":
+          description: Invalid or missing refresh cookie
           content:
             application/json:
               schema:
@@ -597,15 +638,27 @@ paths:
                 $ref: "#/components/schemas/ContractError"
   /api/integration/stream:
     get:
-      summary: SSE Thought Stream (Redis integration events + heartbeat; use fetch + Authorization)
+      summary: SSE Thought Stream (Redis events filtered by sessionId + heartbeat; fetch + Authorization)
       operationId: getApiIntegrationSseStream
       security:
         - bearerAuth: []
+      parameters:
+        - in: query
+          name: sessionId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Workspace session UUID; must belong to the authenticated user
       responses:
         "200":
           description: text/event-stream
+        "400":
+          description: Missing sessionId
         "401":
           description: Unauthorized
+        "403":
+          description: Session access denied
   /api/vfs/snapshot:
     post:
       summary: Create VFS snapshot and emit integration event
@@ -1111,10 +1164,13 @@ components:
           minLength: 8
     AuthTokenResponse:
       type: object
-      required: [accessToken]
+      required: [accessToken, refreshToken]
       properties:
         accessToken:
           type: string
+        refreshToken:
+          type: string
+          description: JWT refresh token; also mirrored as HttpOnly cookie for /api/auth/* web flows
     UserResponse:
       type: object
       required: [id, email, createdAt]

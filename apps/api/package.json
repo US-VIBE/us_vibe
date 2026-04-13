@@ -22,6 +22,8 @@
     "@nestjs/typeorm": "^11.0.0",
     "@us-vibe/backend": "*",
     "better-sqlite3": "^12.8.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
     "bullmq": "^5.73.4",
     "dotenv": "^16.6.1",
     "helmet": "^8.1.0",
