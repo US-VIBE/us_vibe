@@ -44,11 +44,11 @@ export class GeminiService {
   private async generateOnce(
     key: string,
     modelName: string,
-    prompt: string
+    parts: (string | { inlineData: { data: string; mimeType: string } })[]
   ): Promise<string> {
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({ model: modelName });
-    const res = await model.generateContent(prompt);
+    const res = await model.generateContent(parts);
     return res.response.text().trim();
   }
 
@@ -56,13 +56,13 @@ export class GeminiService {
   private async generateWithRetries(
     key: string,
     modelName: string,
-    prompt: string,
+    parts: (string | { inlineData: { data: string; mimeType: string } })[],
     backoffMs: number[]
   ): Promise<string> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
       try {
-        return await this.generateOnce(key, modelName, prompt);
+        return await this.generateOnce(key, modelName, parts);
       } catch (e) {
         lastError = e;
         const msg = e instanceof Error ? e.message : String(e);
@@ -91,7 +91,7 @@ export class GeminiService {
     const primaryBackoff = [900, 2200, 5000, 8000];
 
     try {
-      return await this.generateWithRetries(key, primary, prompt, primaryBackoff);
+      return await this.generateWithRetries(key, primary, [prompt], primaryBackoff);
     } catch (e) {
       if (
         primary !== fallback &&
@@ -100,7 +100,7 @@ export class GeminiService {
         this.logger.warn(
           `Sustained overload on ${primary}; trying fallback ${fallback}`
         );
-        return await this.generateWithRetries(key, fallback, prompt, [
+        return await this.generateWithRetries(key, fallback, [prompt], [
           700,
           1800,
           4000
@@ -108,5 +108,29 @@ export class GeminiService {
       }
       throw e;
     }
+  }
+
+  async generateMultimodal(
+    system: string,
+    user: string,
+    file: { buffer: Buffer; mimeType: string }
+  ): Promise<string> {
+    const key = process.env.GEMINI_API_KEY?.trim();
+    if (!key) {
+      throw new Error("GEMINI_NOT_CONFIGURED");
+    }
+    const primary = this.resolveModelName();
+    const prompt = `System:\n${system}\n\nUser:\n${user}`;
+    const parts = [
+      prompt,
+      {
+        inlineData: {
+          data: file.buffer.toString("base64"),
+          mimeType: file.mimeType
+        }
+      }
+    ];
+
+    return await this.generateWithRetries(key, primary, parts, [900, 2200, 5000]);
   }
 }
