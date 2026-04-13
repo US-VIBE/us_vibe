@@ -15,6 +15,7 @@ import {
   UseInterceptors
 } from "@nestjs/common";
 import * as fs from "fs";
+import { createReadStream } from "fs";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
@@ -28,6 +29,7 @@ import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
 import { OrchestrationQueueService } from "../integration/orchestration-queue.service";
 import { chatImageDownloadSecret, signChatImageDownload } from "./chat-image-download.util";
 import { buildRoleGapPayload } from "./role-gap.util";
+import { chatImageDownloadSecret, signChatImageDownload } from "./chat-image-download.util";
 
 /**
  * 워크스페이스 세션 — role-gap, Prompt-to-Spec, 게이트 조회

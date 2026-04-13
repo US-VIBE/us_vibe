@@ -208,6 +208,38 @@ export async function uploadWorkspaceArtifact(
   return { ok: body.ok, data: body.data };
 }
 
+export type SessionChatImageUpload = {
+  id: string;
+  mime: string;
+  originalName: string;
+  sizeBytes: number;
+  signedViewPath: string;
+  signedViewUrl: string | null;
+};
+
+export async function uploadSessionChatImage(
+  apiBase: string,
+  sessionId: string,
+  file: File
+): Promise<SessionChatImageUpload> {
+  const base = apiBase.replace(/\/$/, "");
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await apiFetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/chat-images`, {
+    method: "POST",
+    body: fd
+  });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? `chat-images ${res.status}`);
+  }
+  const body = (await res.json()) as { ok?: boolean; data?: SessionChatImageUpload };
+  if (!body?.ok || !body.data?.id || !body.data.signedViewPath) {
+    throw new Error("chat-images upload invalid response");
+  }
+  return body.data;
+}
+
 export async function fetchSessionArtifacts(
   apiBase: string,
   sessionId: string
