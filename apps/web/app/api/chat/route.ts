@@ -5,10 +5,27 @@ import {
   learnerFocusFromSessionRole
 } from "../../../lib/collaboration-chat-context";
 
-type HistoryTurn = { role: "user" | "assistant"; content: string };
+/** OpenAI Chat Completions — 사용자 멀티모달 */
+type OpenAiUserContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+/** Nest `POST .../chat-images` 저장 후 클라이언트가 보내는 참조 — 서버에서 data URL로 치환 */
+type ImageRefPart = { type: "image_ref"; imageId: string; mime: string };
+
+type UserContentPart = OpenAiUserContentPart | ImageRefPart;
+
+type HistoryTurn = { role: "user" | "assistant"; content: string | UserContentPart[] };
+
+type OpenAiHistoryTurn = {
+  role: "user" | "assistant";
+  content: string | OpenAiUserContentPart[];
+};
 
 type Body = {
   session?: {
+    /** Nest 채팅 이미지(`image_ref`) 해소에 필요 */
+    sessionId?: string;
     topic?: string;
     goal?: string;
     sprintDays?: number;
@@ -20,16 +37,126 @@ type Body = {
   };
   agent?: { agentId?: string; role?: string; displayName?: string };
   history?: HistoryTurn[];
+  /** Nest API 베이스(끝 `/` 없음). `image_ref`가 있을 때 필수 */
+  nestApiBase?: string;
+  /** 워크스페이스 로그인 액세스 토큰 — Next 서버가 Nest에서 이미지 바이트를 받을 때 사용 */
+  nestAccessToken?: string;
 };
+
+const MAX_IMAGE_DATA_URL_CHARS = 3_600_000;
+const MAX_TEXT_PART_CHARS = 12_000;
+const MAX_USER_PARTS = 16;
+
+function isOpenAiUserContentPart(x: unknown): x is OpenAiUserContentPart {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  if (o.type === "text") {
+    return typeof o.text === "string" && o.text.length <= MAX_TEXT_PART_CHARS;
+  }
+  if (o.type === "image_url" && o.image_url && typeof o.image_url === "object") {
+    const url = (o.image_url as { url?: unknown }).url;
+    if (typeof url !== "string" || url.length > MAX_IMAGE_DATA_URL_CHARS) return false;
+    if (!/^data:image\/(png|jpeg|webp);base64,/i.test(url)) return false;
+    return true;
+  }
+  return false;
+}
+
+function isImageRefPart(x: unknown): x is ImageRefPart {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  if (o.type !== "image_ref") return false;
+  if (typeof o.imageId !== "string" || o.imageId.length < 8 || o.imageId.length > 128) return false;
+  if (!/^[a-zA-Z0-9-]+$/.test(o.imageId)) return false;
+  if (typeof o.mime !== "string" || !/^image\/(png|jpeg|webp)$/i.test(o.mime)) return false;
+  return true;
+}
+
+function isUserContentPart(x: unknown): x is UserContentPart {
+  return isOpenAiUserContentPart(x) || isImageRefPart(x);
+}
 
 function isHistoryTurn(x: unknown): x is HistoryTurn {
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
-  return (
-    (o.role === "user" || o.role === "assistant") &&
-    typeof o.content === "string" &&
-    o.content.length <= 32000
+  if (o.role !== "user" && o.role !== "assistant") return false;
+  if (typeof o.content === "string") {
+    return o.content.length <= 32000;
+  }
+  if (!Array.isArray(o.content)) return false;
+  if (o.content.length === 0 || o.content.length > MAX_USER_PARTS) return false;
+  if (o.role === "assistant") return false;
+  return o.content.every(isUserContentPart);
+}
+
+function historyUsesOpenAiVision(history: HistoryTurn[]): boolean {
+  return history.some((h) => {
+    if (h.role !== "user" || typeof h.content === "string") return false;
+    return h.content.some((p) => p.type === "image_url" || p.type === "image_ref");
+  });
+}
+
+function historyHasImageRef(history: HistoryTurn[]): boolean {
+  return history.some(
+    (h) =>
+      h.role === "user" &&
+      Array.isArray(h.content) &&
+      h.content.some((p) => p.type === "image_ref")
   );
+}
+
+async function resolveNestImageRefsForOpenAI(input: {
+  history: HistoryTurn[];
+  sessionId: string;
+  nestApiBase: string;
+  nestAccessToken: string;
+}): Promise<OpenAiHistoryTurn[]> {
+  const base = input.nestApiBase.replace(/\/$/, "");
+  const out: OpenAiHistoryTurn[] = [];
+  for (const h of input.history) {
+    if (h.role === "assistant") {
+      out.push({ role: "assistant", content: typeof h.content === "string" ? h.content : "" });
+      continue;
+    }
+    if (typeof h.content === "string") {
+      out.push({ role: "user", content: h.content });
+      continue;
+    }
+    const parts: OpenAiUserContentPart[] = [];
+    for (const p of h.content) {
+      if (p.type === "image_ref") {
+        const url = `${base}/api/sessions/${encodeURIComponent(input.sessionId)}/chat-images/${encodeURIComponent(p.imageId)}/file`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${input.nestAccessToken}`, Accept: "*/*" }
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(
+            `NEST_CHAT_IMAGE_FETCH_${res.status}${t ? `: ${t.slice(0, 200)}` : ""}`
+          );
+        }
+        const buf = new Uint8Array(await res.arrayBuffer());
+        let b64 = "";
+        try {
+          b64 = Buffer.from(buf).toString("base64");
+        } catch {
+          let bin = "";
+          for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]!);
+          b64 = btoa(bin);
+        }
+        const mimeNorm = /^image\/jpeg$/i.test(p.mime) ? "image/jpeg" : p.mime.toLowerCase();
+        const dataUrl = `data:${mimeNorm};base64,${b64}`;
+        if (dataUrl.length > MAX_IMAGE_DATA_URL_CHARS) {
+          throw new Error("NEST_CHAT_IMAGE_TOO_LARGE");
+        }
+        parts.push({ type: "image_url", image_url: { url: dataUrl } });
+      } else {
+        parts.push(p);
+      }
+    }
+    out.push({ role: "user", content: parts });
+  }
+  return out;
 }
 
 /** Gemini generateContent 응답에서 텍스트 추출 */
@@ -112,14 +239,36 @@ function openAiPermissionHint(apiMessage: string): string | null {
   ].join("\n");
 }
 
+function extractOpenAiAssistantText(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const choices = (raw as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const c0 = choices[0] as { message?: { content?: unknown } };
+  const c = c0?.message?.content;
+  if (typeof c === "string") return c.trim() || null;
+  if (Array.isArray(c)) {
+    const text = c
+      .filter((p): p is { type?: string; text?: string } => p != null && typeof p === "object")
+      .filter((p) => p.type === "text" && typeof p.text === "string")
+      .map((p) => p.text)
+      .join("");
+    const t = text.trim();
+    return t || null;
+  }
+  return null;
+}
+
 async function completeWithOpenAI(input: {
   system: string;
-  history: HistoryTurn[];
+  history: OpenAiHistoryTurn[];
   openaiKey: string;
   openaiBase: string;
   openaiModel: string;
 }): Promise<NextResponse> {
-  const openaiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+  const openaiMessages: {
+    role: "system" | "user" | "assistant";
+    content: string | OpenAiUserContentPart[];
+  }[] = [
     { role: "system", content: input.system },
     ...input.history.map((h) => ({ role: h.role, content: h.content }))
   ];
@@ -161,14 +310,9 @@ async function completeWithOpenAI(input: {
     );
   }
 
-  const text =
-    raw &&
-    typeof raw === "object" &&
-    "choices" in raw &&
-    Array.isArray((raw as { choices?: unknown }).choices) &&
-    (raw as { choices: { message?: { content?: string } }[] }).choices[0]?.message?.content;
+  const text = extractOpenAiAssistantText(raw);
 
-  if (typeof text !== "string" || !text.trim()) {
+  if (!text?.trim()) {
     return NextResponse.json(
       { ok: false, error: "EMPTY", message: "모델 응답이 비어 있습니다." },
       { status: 502 }
@@ -180,7 +324,7 @@ async function completeWithOpenAI(input: {
 
 async function completeWithGemini(input: {
   system: string;
-  history: HistoryTurn[];
+  history: OpenAiHistoryTurn[];
   geminiKey: string;
   geminiModel: string;
 }): Promise<
@@ -189,10 +333,13 @@ async function completeWithGemini(input: {
 > {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.geminiModel)}:generateContent?key=${encodeURIComponent(input.geminiKey)}`;
 
-  const contents = input.history.map((h) => ({
-    role: h.role === "user" ? "user" : "model",
-    parts: [{ text: h.content }]
-  }));
+  const contents = input.history.map((h) => {
+    const text = typeof h.content === "string" ? h.content : "[첨부: 이미지·파일 — OpenAI 전용]";
+    return {
+      role: h.role === "user" ? "user" : "model",
+      parts: [{ text }]
+    };
+  });
 
   const res = await fetch(url, {
     method: "POST",
@@ -268,18 +415,6 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!geminiKey && !openaiKey) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "NO_API_KEY",
-        message:
-          "기본은 OpenAI입니다. apps/web/.env.local에 OPENAI_API_KEY를 설정하세요. Gemini를 쓰려면 CHAT_PROVIDER=auto 또는 gemini 와 GEMINI_API_KEY를 넣으세요."
-      },
-      { status: 503 }
-    );
-  }
-
   const role = agent.role ?? "에이전트";
   const name = agent.displayName ?? role;
   const topic = session.topic ?? "";
@@ -297,6 +432,82 @@ export async function POST(request: Request) {
     activatedAiRoleLabels: session.activatedAiRoleLabels
   });
 
+  let llmHistory: OpenAiHistoryTurn[] = history as OpenAiHistoryTurn[];
+  if (historyHasImageRef(history)) {
+    const sessionId = typeof session.sessionId === "string" ? session.sessionId.trim() : "";
+    const nestApiBase = typeof body.nestApiBase === "string" ? body.nestApiBase.trim() : "";
+    const nestAccessToken = typeof body.nestAccessToken === "string" ? body.nestAccessToken.trim() : "";
+    if (!sessionId || !nestApiBase || !nestAccessToken) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "NEST_AUTH_REQUIRED",
+          message:
+            "서버에 저장된 채팅 이미지(image_ref)를 OpenAI로 넘기려면 session.sessionId, nestApiBase, nestAccessToken이 필요합니다. 워크스페이스에서 로그인한 뒤 다시 시도하세요."
+        },
+        { status: 400 }
+      );
+    }
+    try {
+      llmHistory = await resolveNestImageRefsForOpenAI({
+        history,
+        sessionId,
+        nestApiBase,
+        nestAccessToken
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "NEST_CHAT_IMAGE_TOO_LARGE") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "CHAT_IMAGE_TOO_LARGE",
+            message: "Nest에서 받은 이미지가 OpenAI 전송 한도를 초과했습니다."
+          },
+          { status: 413 }
+        );
+      }
+      return NextResponse.json(
+        { ok: false, error: "NEST_CHAT_IMAGE_FETCH", message: msg },
+        { status: 502 }
+      );
+    }
+  }
+
+  const multimodal = historyUsesOpenAiVision(llmHistory as HistoryTurn[]);
+  if (multimodal) {
+    if (!openaiKey) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "VISION_REQUIRES_OPENAI",
+          message:
+            "이미지·파일 첨부 채팅은 OpenAI 비전이 필요합니다. apps/web/.env.local에 OPENAI_API_KEY를 설정하세요."
+        },
+        { status: 503 }
+      );
+    }
+    return await completeWithOpenAI({
+      system,
+      history: llmHistory,
+      openaiKey,
+      openaiBase,
+      openaiModel
+    });
+  }
+
+  if (!geminiKey && !openaiKey) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "NO_API_KEY",
+        message:
+          "기본은 OpenAI입니다. apps/web/.env.local에 OPENAI_API_KEY를 설정하세요. Gemini를 쓰려면 CHAT_PROVIDER=auto 또는 gemini 와 GEMINI_API_KEY를 넣으세요."
+      },
+      { status: 503 }
+    );
+  }
+
   try {
     if (chatProvider === "openai") {
       if (!openaiKey) {
@@ -311,7 +522,7 @@ export async function POST(request: Request) {
       }
       return await completeWithOpenAI({
         system,
-        history,
+        history: llmHistory,
         openaiKey,
         openaiBase,
         openaiModel
@@ -329,7 +540,7 @@ export async function POST(request: Request) {
           { status: 503 }
         );
       }
-      const g = await completeWithGemini({ system, history, geminiKey, geminiModel });
+      const g = await completeWithGemini({ system, history: llmHistory, geminiKey, geminiModel });
       if (g.ok) {
         return NextResponse.json({ ok: true, text: g.text, usedMock: false, provider: "gemini" as const });
       }
@@ -338,14 +549,14 @@ export async function POST(request: Request) {
 
     // --- auto (기본) ---
     if (geminiKey) {
-      const g = await completeWithGemini({ system, history, geminiKey, geminiModel });
+      const g = await completeWithGemini({ system, history: llmHistory, geminiKey, geminiModel });
       if (g.ok) {
         return NextResponse.json({ ok: true, text: g.text, usedMock: false, provider: "gemini" as const });
       }
       if (g.fallbackToOpenai && openaiKey) {
         return await completeWithOpenAI({
           system,
-          history,
+          history: llmHistory,
           openaiKey,
           openaiBase,
           openaiModel
@@ -357,7 +568,7 @@ export async function POST(request: Request) {
     if (openaiKey) {
       return await completeWithOpenAI({
         system,
-        history,
+        history: llmHistory,
         openaiKey,
         openaiBase,
         openaiModel

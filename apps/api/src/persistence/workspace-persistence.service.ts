@@ -170,6 +170,27 @@ export interface PrValidationStatusEnvelope {
   validation: PrValidationCacheRow | null;
 }
 
+/** AI 스냅샷 평가 결과 — `session_artifact.evaluation_json` */
+export type SessionArtifactEvaluation =
+  | {
+      status: "completed";
+      model: string;
+      promptVersion: string;
+      text: string;
+      evaluatedAt: string;
+    }
+  | {
+      status: "failed";
+      model?: string;
+      error: string;
+      evaluatedAt: string;
+    }
+  | {
+      status: "skipped";
+      reason: string;
+      evaluatedAt: string;
+    };
+
 export interface SessionArtifactRecord {
   id: string;
   sessionId: string;
@@ -179,6 +200,18 @@ export interface SessionArtifactRecord {
   sizeBytes: number;
   storedPath: string;
   rubric: { passed: boolean; checks: { id: string; pass: boolean; note: string }[] };
+  createdAt: string;
+  evaluation: SessionArtifactEvaluation | null;
+}
+
+/** 채팅 멀티모달 전용 — 산출물(session_artifact)과 저장 경로·DB를 분리 */
+export interface SessionChatImageRecord {
+  id: string;
+  sessionId: string;
+  originalName: string;
+  mime: string;
+  sizeBytes: number;
+  storedPath: string;
   createdAt: string;
 }
 
@@ -337,10 +370,22 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         size_bytes INTEGER NOT NULL,
         stored_path TEXT NOT NULL,
         rubric_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        evaluation_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_session_artifact_session
         ON session_artifact (session_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS session_chat_image (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        stored_path TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_chat_image_session
+        ON session_chat_image (session_id, created_at DESC);
       CREATE TABLE IF NOT EXISTS in_app_notification (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -386,6 +431,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
     this.ensureColumn("workspace_session", "owner_user_id", "TEXT");
+    this.ensureColumn("session_artifact", "evaluation_json", "TEXT");
     this.logger.log(`SQLite workspace state: ${dbPath}`);
   }
 
@@ -749,6 +795,14 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return path.join(process.cwd(), "data", "artifacts");
   }
 
+  private chatImageStorageRoot(): string {
+    const raw = process.env.CHAT_IMAGE_STORAGE_PATH?.trim();
+    if (raw) {
+      return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+    }
+    return path.join(process.cwd(), "data", "chat-images");
+  }
+
   saveSessionArtifact(input: {
     sessionId: string;
     kind: string;
@@ -777,8 +831,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, evaluation_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -789,6 +843,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         input.buffer.length,
         storedPath,
         JSON.stringify(rubric),
+        null,
         createdAt
       );
     return {
@@ -800,7 +855,98 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       sizeBytes: input.buffer.length,
       storedPath,
       rubric,
+      evaluation: null,
       createdAt
+    };
+  }
+
+  updateArtifactAiReview(
+    artifactId: string,
+    rubric: SessionArtifactRecord["rubric"]
+  ): void {
+    this.db
+      .prepare(
+        "UPDATE session_artifact SET rubric_json = ? WHERE id = ?"
+      )
+      .run(JSON.stringify(rubric), artifactId);
+  }
+
+  saveSessionChatImage(input: {
+    sessionId: string;
+    originalName: string;
+    mime: string;
+    buffer: Buffer;
+  }): SessionChatImageRecord {
+    const maxBytes = 1_048_576;
+    if (input.buffer.length > maxBytes) {
+      throw new Error("CHAT_IMAGE_TOO_LARGE");
+    }
+    const allowed = /^image\/(png|jpeg|webp)$/i.test(input.mime) || input.mime === "image/jpg";
+    if (!allowed) {
+      throw new Error("CHAT_IMAGE_MIME_NOT_ALLOWED");
+    }
+
+    const id = crypto.randomUUID();
+    const ext =
+      path.extname(input.originalName) ||
+      (input.mime.includes("webp") ? ".webp" : input.mime.includes("png") ? ".png" : ".jpg");
+    const dir = path.join(this.chatImageStorageRoot(), input.sessionId);
+    fs.mkdirSync(dir, { recursive: true });
+    const storedPath = path.join(dir, `${id}${ext}`);
+    fs.writeFileSync(storedPath, input.buffer);
+
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO session_chat_image (id, session_id, original_name, mime, size_bytes, stored_path, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.sessionId,
+        input.originalName,
+        input.mime,
+        input.buffer.length,
+        storedPath,
+        createdAt
+      );
+    return {
+      id,
+      sessionId: input.sessionId,
+      originalName: input.originalName,
+      mime: input.mime,
+      sizeBytes: input.buffer.length,
+      storedPath,
+      createdAt
+    };
+  }
+
+  getSessionChatImage(sessionId: string, imageId: string): SessionChatImageRecord | null {
+    const r = this.db
+      .prepare(
+        `SELECT id, session_id, original_name, mime, size_bytes, stored_path, created_at
+         FROM session_chat_image WHERE session_id = ? AND id = ?`
+      )
+      .get(sessionId, imageId) as
+      | {
+          id: string;
+          session_id: string;
+          original_name: string;
+          mime: string;
+          size_bytes: number;
+          stored_path: string;
+          created_at: string;
+        }
+      | undefined;
+    if (!r) return null;
+    return {
+      id: r.id,
+      sessionId: r.session_id,
+      originalName: r.original_name,
+      mime: r.mime,
+      sizeBytes: r.size_bytes,
+      storedPath: r.stored_path,
+      createdAt: r.created_at
     };
   }
 
@@ -823,10 +969,87 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return { passed: checks.every((c) => c.pass), checks };
   }
 
+  private parseEvaluationJson(raw: string | null): SessionArtifactEvaluation | null {
+    if (raw == null || raw.trim() === "") {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as SessionArtifactEvaluation;
+    } catch {
+      return null;
+    }
+  }
+
+  private rowToSessionArtifact(r: {
+    id: string;
+    session_id: string;
+    kind: string;
+    original_name: string;
+    mime: string;
+    size_bytes: number;
+    stored_path: string;
+    rubric_json: string;
+    created_at: string;
+    evaluation_json: string | null;
+  }): SessionArtifactRecord {
+    return {
+      id: r.id,
+      sessionId: r.session_id,
+      kind: r.kind,
+      originalName: r.original_name,
+      mime: r.mime,
+      sizeBytes: r.size_bytes,
+      storedPath: r.stored_path,
+      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
+      createdAt: r.created_at,
+      evaluation: this.parseEvaluationJson(r.evaluation_json)
+    };
+  }
+
+  getSessionArtifact(sessionId: string, artifactId: string): SessionArtifactRecord | null {
+    const r = this.db
+      .prepare(
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json
+         FROM session_artifact WHERE session_id = ? AND id = ?`
+      )
+      .get(sessionId, artifactId) as
+      | {
+          id: string;
+          session_id: string;
+          kind: string;
+          original_name: string;
+          mime: string;
+          size_bytes: number;
+          stored_path: string;
+          rubric_json: string;
+          created_at: string;
+          evaluation_json: string | null;
+        }
+      | undefined;
+    return r ? this.rowToSessionArtifact(r) : null;
+  }
+
+  setSessionArtifactEvaluation(
+    sessionId: string,
+    artifactId: string,
+    evaluation: SessionArtifactEvaluation
+  ): SessionArtifactRecord | null {
+    const info = this.db
+      .prepare("SELECT session_id FROM session_artifact WHERE id = ?")
+      .get(artifactId) as { session_id: string } | undefined;
+    if (!info || info.session_id !== sessionId) {
+      return null;
+    }
+    this.db
+      .prepare("UPDATE session_artifact SET evaluation_json = ? WHERE id = ? AND session_id = ?")
+      .run(JSON.stringify(evaluation), artifactId, sessionId);
+    return this.getSessionArtifact(sessionId, artifactId);
+  }
+
   listSessionArtifacts(sessionId: string): SessionArtifactRecord[] {
     const rows = this.db
       .prepare(
-        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json
          FROM session_artifact WHERE session_id = ? ORDER BY created_at DESC`
       )
       .all(sessionId) as Array<{
@@ -839,18 +1062,9 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       stored_path: string;
       rubric_json: string;
       created_at: string;
+      evaluation_json: string | null;
     }>;
-    return rows.map((r) => ({
-      id: r.id,
-      sessionId: r.session_id,
-      kind: r.kind,
-      originalName: r.original_name,
-      mime: r.mime,
-      sizeBytes: r.size_bytes,
-      storedPath: r.stored_path,
-      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
-      createdAt: r.created_at
-    }));
+    return rows.map((r) => this.rowToSessionArtifact(r));
   }
 
   appendInAppNotification(input: {
@@ -875,6 +1089,21 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       body: input.body,
       createdAt
     };
+  }
+
+  /** 동일 `kind` 알림이 쿨다운 안에 있었는지(중복 스팸 방지). */
+  hasRecentInAppNotification(sessionId: string, kind: string, cooldownMinutes: number): boolean {
+    const m = Math.min(Math.max(1, Math.floor(cooldownMinutes)), 24 * 60);
+    const row = this.db
+      .prepare(
+        `SELECT created_at FROM in_app_notification
+         WHERE session_id = ? AND kind = ? ORDER BY datetime(created_at) DESC LIMIT 1`
+      )
+      .get(sessionId, kind) as { created_at: string } | undefined;
+    if (!row?.created_at) return false;
+    const t = Date.parse(row.created_at);
+    if (!Number.isFinite(t)) return false;
+    return Date.now() - t < m * 60_000;
   }
 
   listInAppNotifications(sessionId: string, limit = 50): InAppNotificationRow[] {

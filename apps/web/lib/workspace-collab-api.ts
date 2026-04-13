@@ -163,12 +163,30 @@ export async function fetchIntegrationHints(
   return body.data;
 }
 
+export type SessionArtifactEvaluation =
+  | { status: "completed"; model: string; promptVersion: string; text: string; evaluatedAt: string }
+  | { status: "failed"; model?: string; error: string; evaluatedAt: string }
+  | { status: "skipped"; reason: string; evaluatedAt: string };
+
+export type SessionArtifactRow = {
+  id: string;
+  sessionId: string;
+  kind: string;
+  originalName: string;
+  mime: string;
+  sizeBytes: number;
+  storedPath: string;
+  rubric: { passed: boolean; checks: { id: string; pass: boolean; note: string }[] };
+  createdAt: string;
+  evaluation: SessionArtifactEvaluation | null;
+};
+
 export async function uploadWorkspaceArtifact(
   apiBase: string,
   sessionId: string,
   file: File,
   kind?: string
-): Promise<unknown> {
+): Promise<{ ok: boolean; data: SessionArtifactRow }> {
   const base = apiBase.replace(/\/$/, "");
   const fd = new FormData();
   fd.append("file", file);
@@ -183,7 +201,89 @@ export async function uploadWorkspaceArtifact(
     const errBody = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(errBody.message ?? `artifacts ${res.status}`);
   }
-  return res.json();
+  const body = (await res.json()) as { ok?: boolean; data?: SessionArtifactRow };
+  if (!body?.ok || !body.data) {
+    throw new Error("artifacts upload invalid response");
+  }
+  return { ok: body.ok, data: body.data };
+}
+
+export type SessionChatImageUpload = {
+  id: string;
+  mime: string;
+  originalName: string;
+  sizeBytes: number;
+  signedViewPath: string;
+  signedViewUrl: string | null;
+};
+
+export async function uploadSessionChatImage(
+  apiBase: string,
+  sessionId: string,
+  file: File
+): Promise<SessionChatImageUpload> {
+  const base = apiBase.replace(/\/$/, "");
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await apiFetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/chat-images`, {
+    method: "POST",
+    body: fd
+  });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? `chat-images ${res.status}`);
+  }
+  const body = (await res.json()) as { ok?: boolean; data?: SessionChatImageUpload };
+  if (!body?.ok || !body.data?.id || !body.data.signedViewPath) {
+    throw new Error("chat-images upload invalid response");
+  }
+  return body.data;
+}
+
+export async function fetchSessionArtifacts(
+  apiBase: string,
+  sessionId: string
+): Promise<SessionArtifactRow[]> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/artifacts`);
+  if (!res.ok) {
+    throw new Error(`artifacts list ${res.status}`);
+  }
+  const body = (await res.json()) as { ok?: boolean; data?: SessionArtifactRow[] };
+  if (!body?.ok || !Array.isArray(body.data)) {
+    throw new Error("artifacts list invalid");
+  }
+  return body.data;
+}
+
+export async function evaluateSessionArtifact(
+  apiBase: string,
+  sessionId: string,
+  artifactId: string,
+  options?: { force?: boolean }
+): Promise<{ data: SessionArtifactRow | null; cached: boolean }> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/evaluate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: options?.force ?? false })
+    }
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? `artifact evaluate ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    ok?: boolean;
+    data?: SessionArtifactRow | null;
+    cached?: boolean;
+  };
+  if (!body?.ok) {
+    throw new Error("artifact evaluate invalid response");
+  }
+  return { data: body.data ?? null, cached: Boolean(body.cached) };
 }
 
 export async function fetchInAppNotifications(
@@ -203,6 +303,42 @@ export async function fetchInAppNotifications(
   };
   if (!body?.ok || !Array.isArray(body.data)) {
     throw new Error("in-app-notifications invalid");
+  }
+  return body.data;
+}
+
+export type DiscussionPingRow = { id: string; title: string; body: string; kind: string; createdAt: string };
+
+export type DiscussionPingResponse = {
+  inserted: DiscussionPingRow[];
+  skipped: Array<{ kind: string; reason: string }>;
+};
+
+/** 서버가 워크스페이스 상태를 평가해 논의용 in-app 알림을 생성한다. */
+export async function postDiscussionPing(
+  apiBase: string,
+  sessionId: string,
+  options?: { force?: boolean }
+): Promise<DiscussionPingResponse> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/discussion-ping`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: options?.force ?? false })
+    }
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? `discussion-ping ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    ok?: boolean;
+    data?: DiscussionPingResponse;
+  };
+  if (!body?.ok || !body.data || !Array.isArray(body.data.inserted) || !Array.isArray(body.data.skipped)) {
+    throw new Error("discussion-ping invalid response");
   }
   return body.data;
 }

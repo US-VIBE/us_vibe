@@ -18,7 +18,10 @@ export type IntegrationEventType =
   | "CODE_DELTA_ANALYZED"
   | "CONTRACT_CHANGED"
   | "VFS_SNAPSHOT_CREATED"
-  | "VFS_APPROVED";
+  | "VFS_APPROVED"
+  | "ORCHESTRATION_STARTED"
+  | "ORCHESTRATION_COMPLETED"
+  | "AGENT_REPLY";
 
 export interface LintError {
   file: string;
@@ -65,13 +68,16 @@ export type IntegrationEventPayload =
   | { codeDeltaSummary: CodeDeltaSummary }
   | { contractDiffs: ContractDiff[]; openApiVersion: string }
   | { snapshotId: string; vfsBranch: string; diffUrl: string }
-  | { snapshotId: string; targetBranch: string };
+  | { snapshotId: string; targetBranch: string }
+  | { sessionId: string; userMessage: string }
+  | { supervisor?: string; agents: Array<{ role: string; text: string }> }
+  | { role: string; phase: string; text: string };
 
 export interface IntegrationEvent {
   type: IntegrationEventType;
   sessionId: string;
   stateVersion: number;
-  triggeredBy: "github" | "user" | "agent";
+  triggeredBy: "github" | "user" | "agent" | "orchestrator";
   payload: IntegrationEventPayload;
   timestamp: string;
 }

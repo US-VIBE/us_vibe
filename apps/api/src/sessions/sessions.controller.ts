@@ -22,6 +22,15 @@ export class SessionsController {
     return this.sessions.runAiScenarioFinish(id);
   }
 
+  @Post(":id/orchestrate")
+  @HttpCode(HttpStatus.OK)
+  async orchestrate(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() body: { userMessage?: string }
+  ) {
+    return this.sessions.orchestrate(id, body);
+  }
+
   @Post(":id/run-scenario")
   @HttpCode(HttpStatus.OK)
   async runScenario(

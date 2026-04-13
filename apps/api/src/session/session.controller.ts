@@ -3,20 +3,31 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
   Req,
+  ServiceUnavailableException,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors
 } from "@nestjs/common";
+import * as fs from "fs";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
-import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import { OpenAIArtifactEvalService } from "../ai/openai-artifact-eval.service";
+import { DiscussionPingService } from "../persistence/discussion-ping.service";
+import {
+  WorkspacePersistenceService,
+  type SessionArtifactEvaluation
+} from "../persistence/workspace-persistence.service";
 import { getScenarioPackById, renderGithubEnvSnippet } from "../scenarios/scenario-registry";
 import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
+import { OrchestrationQueueService } from "../integration/orchestration-queue.service";
+import { chatImageDownloadSecret, signChatImageDownload } from "./chat-image-download.util";
 import { buildRoleGapPayload } from "./role-gap.util";
 
 /**
@@ -25,7 +36,12 @@ import { buildRoleGapPayload } from "./role-gap.util";
 @Controller("api/sessions")
 @UseGuards(JwtAuthGuard)
 export class SessionController {
-  constructor(private readonly workspace: WorkspacePersistenceService) {}
+  constructor(
+    private readonly workspace: WorkspacePersistenceService,
+    private readonly orchestrationQueue: OrchestrationQueueService,
+    private readonly openaiArtifactEval: OpenAIArtifactEvalService,
+    private readonly discussionPing: DiscussionPingService
+  ) {}
 
   @Get(":sessionId/role-gap")
   roleGap(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
@@ -91,6 +107,21 @@ export class SessionController {
     };
   }
 
+  /**
+   * 워크스페이스 상태를 평가해 논의/추가 요청 알림을 `in_app_notification`에 쌓는다.
+   * Body: `{ "force": true }` 이면 동일 kind 쿨다운을 무시하고 다시 생성한다.
+   */
+  @Post(":sessionId/discussion-ping")
+  postDiscussionPing(
+    @Param("sessionId") sessionId: string,
+    @Body() body: { force?: boolean },
+    @Req() req: AuthedRequest
+  ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    const data = this.discussionPing.evaluateSession(sessionId, { force: Boolean(body?.force) });
+    return { ok: true, data };
+  }
+
   @Get(":sessionId/artifacts")
   listArtifacts(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
     this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
@@ -124,7 +155,9 @@ export class SessionController {
         message: "multipart 필드 file 이 필요합니다."
       });
     }
-    const kind = typeof body?.kind === "string" && body.kind.trim() ? body.kind.trim() : "erd";
+    const rawKind = typeof body?.kind === "string" ? body.kind.trim() : "";
+    const kind =
+      rawKind.length > 0 && /^[a-z][a-z0-9_-]{0,63}$/i.test(rawKind) ? rawKind.toLowerCase() : "erd";
     try {
       const record = this.workspace.saveSessionArtifact({
         sessionId,
@@ -137,8 +170,16 @@ export class SessionController {
         sessionId,
         kind: "artifact_uploaded",
         title: "산출물 접수",
-        body: `${record.kind} (${record.originalName}) 루브릭 통과: ${record.rubric.passed ? "예" : "아니오"}`
+        body: `${record.kind} (${record.originalName}) 루브릭 통과: ${record.rubric.passed ? "예" : "아니오"} (AI 검토를 시작합니다.)`
       });
+
+      // AI 기반 평가 큐에 등록
+      void this.orchestrationQueue.enqueue({
+        sessionId,
+        type: "ARTIFACT_REVIEW",
+        artifactId: record.id
+      });
+
       return { ok: true, data: record };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -164,6 +205,209 @@ export class SessionController {
         });
       }
       throw e;
+    }
+  }
+
+  /**
+   * 워크스페이스 채팅 이미지 업로드 — 산출물(artifacts)과 별도 저장.
+   * 응답의 `signedViewPath`는 브라우저 `<img src>`용(만료 TTL). Next 서버는 JWT `GET .../file`로 바이트를 받을 수 있습니다.
+   */
+  @Post(":sessionId/chat-images")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 1_048_576 }
+    })
+  )
+  uploadChatImage(
+    @Param("sessionId") sessionId: string,
+    @UploadedFile()
+    file:
+      | {
+          buffer: Buffer;
+          mimetype: string;
+          originalname: string;
+        }
+      | undefined,
+    @Req() req: AuthedRequest
+  ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    if (!file?.buffer) {
+      throw new BadRequestException({
+        ok: false,
+        code: "CHAT_IMAGE_FILE_REQUIRED",
+        message: "multipart 필드 file 이 필요합니다."
+      });
+    }
+    try {
+      const record = this.workspace.saveSessionChatImage({
+        sessionId,
+        originalName: file.originalname || "chat-image",
+        mime: file.mimetype,
+        buffer: file.buffer
+      });
+      const exp = Math.floor(Date.now() / 1000) + 86_400;
+      const sig = signChatImageDownload(sessionId, record.id, exp, chatImageDownloadSecret());
+      const signedViewPath = `/api/chat-image-files/${encodeURIComponent(sessionId)}/${encodeURIComponent(record.id)}?exp=${exp}&sig=${encodeURIComponent(sig)}`;
+      const publicBase = (process.env.API_PUBLIC_URL ?? "").replace(/\/$/, "");
+      const signedViewUrl = publicBase ? `${publicBase}${signedViewPath}` : null;
+      return {
+        ok: true,
+        data: {
+          id: record.id,
+          mime: record.mime,
+          originalName: record.originalName,
+          sizeBytes: record.sizeBytes,
+          signedViewPath,
+          signedViewUrl
+        }
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "CHAT_IMAGE_TOO_LARGE") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "채팅 이미지는 1MB 이하여야 합니다."
+        });
+      }
+      if (msg === "CHAT_IMAGE_MIME_NOT_ALLOWED") {
+        throw new BadRequestException({
+          ok: false,
+          code: msg,
+          message: "PNG, JPEG, WebP만 업로드할 수 있습니다."
+        });
+      }
+      throw e;
+    }
+  }
+
+  /** 채팅 이미지 바이너리 — Bearer JWT (Next 서버 등 서버측 호출). */
+  @Get(":sessionId/chat-images/:imageId/file")
+  getChatImageFile(
+    @Param("sessionId") sessionId: string,
+    @Param("imageId") imageId: string,
+    @Req() req: AuthedRequest
+  ): StreamableFile {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    const row = this.workspace.getSessionChatImage(sessionId, imageId);
+    if (!row) {
+      throw new NotFoundException({
+        ok: false,
+        code: "CHAT_IMAGE_NOT_FOUND",
+        message: "이미지를 찾을 수 없습니다."
+      });
+    }
+    try {
+      fs.accessSync(row.storedPath, fs.constants.R_OK);
+    } catch {
+      throw new NotFoundException({
+        ok: false,
+        code: "CHAT_IMAGE_FILE_MISSING",
+        message: "저장된 파일을 읽을 수 없습니다."
+      });
+    }
+    return new StreamableFile(fs.createReadStream(row.storedPath), {
+      type: row.mime
+    });
+  }
+
+  /** Body: `{ "force": true }` 이면 완료된 평가도 다시 호출합니다. */
+  @Post(":sessionId/artifacts/:artifactId/evaluate")
+  async evaluateArtifact(
+    @Param("sessionId") sessionId: string,
+    @Param("artifactId") artifactId: string,
+    @Body() body: { force?: boolean },
+    @Req() req: AuthedRequest
+  ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    if (!this.openaiArtifactEval.isConfigured()) {
+      throw new ServiceUnavailableException({
+        ok: false,
+        code: "OPENAI_NOT_CONFIGURED",
+        message: "산출물 AI 평가에는 API 환경에 OPENAI_API_KEY가 필요합니다. (비전: gpt-4o-mini 등)"
+      });
+    }
+    const art = this.workspace.getSessionArtifact(sessionId, artifactId);
+    if (!art) {
+      throw new NotFoundException({
+        ok: false,
+        code: "ARTIFACT_NOT_FOUND",
+        message: "산출물을 찾을 수 없습니다."
+      });
+    }
+    const force = Boolean(body?.force);
+    if (!force && art.evaluation?.status === "completed") {
+      return { ok: true, data: art, cached: true as const };
+    }
+
+    const now = new Date().toISOString();
+    if (/^application\/pdf$/i.test(art.mime)) {
+      const skipped: SessionArtifactEvaluation = {
+        status: "skipped",
+        reason:
+          "PDF는 현재 자동 AI 비전 평가를 지원하지 않습니다. 스크린샷은 PNG/JPEG/WebP로 제출해 주세요.",
+        evaluatedAt: now
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, skipped);
+      return { ok: true, data: updated, cached: false as const };
+    }
+
+    const isImage =
+      /^image\/(png|jpeg|webp)$/i.test(art.mime) || art.mime === "image/jpg";
+    if (!isImage) {
+      const skipped: SessionArtifactEvaluation = {
+        status: "skipped",
+        reason: "이 MIME 형식은 이미지 AI 평가 대상이 아닙니다.",
+        evaluatedAt: now
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, skipped);
+      return { ok: true, data: updated, cached: false as const };
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = fs.readFileSync(art.storedPath);
+    } catch {
+      throw new NotFoundException({
+        ok: false,
+        code: "ARTIFACT_FILE_MISSING",
+        message: "저장된 파일을 읽을 수 없습니다."
+      });
+    }
+
+    const base64 = buffer.toString("base64");
+    try {
+      const { text, model, promptVersion } = await this.openaiArtifactEval.evaluateImage({
+        mime: art.mime,
+        base64,
+        kind: art.kind
+      });
+      const completed: SessionArtifactEvaluation = {
+        status: "completed",
+        model,
+        promptVersion,
+        text,
+        evaluatedAt: new Date().toISOString()
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, completed);
+      if (updated) {
+        this.workspace.appendInAppNotification({
+          sessionId,
+          kind: "artifact_evaluated",
+          title: "AI 산출물 피드백",
+          body: `${updated.kind} (${updated.originalName}): ${text.slice(0, 160)}${text.length > 160 ? "…" : ""}`
+        });
+      }
+      return { ok: true, data: updated, cached: false as const };
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const failed: SessionArtifactEvaluation = {
+        status: "failed",
+        error: errMsg,
+        evaluatedAt: new Date().toISOString()
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, failed);
+      return { ok: true, data: updated, cached: false as const };
     }
   }
 
