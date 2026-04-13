@@ -1,0 +1,4 @@
+{
+  "installCommand": "cd ../.. && npm ci",
+  "buildCommand": "cd ../.. && npm run build -w @us-vibe/backend && npm run build -w web"
+}

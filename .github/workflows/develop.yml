@@ -1,0 +1,56 @@
+# https://github.com/US-VIBE/us_vibe — develop 브랜치 push 시 CI + Vercel(웹) 배포
+#
+# Secrets (저장소 Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN        — https://vercel.com/account/tokens
+#   VERCEL_ORG_ID       — apps/web 에서 npx vercel link 후 .vercel/project.json
+#   VERCEL_PROJECT_ID   — (同上)
+#
+# Vercel 프로젝트: Root Directory = apps/web
+# API(Nest)는 Vercel 외부(Render/Railway 등)에 두고 DATABASE_URL 등을 설정하세요.
+
+name: develop
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: develop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  deploy-web-vercel:
+    needs: ci
+    if: github.repository == 'US-VIBE/us_vibe'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel (preview)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: apps/web
+          production: false
