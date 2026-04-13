@@ -19,6 +19,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
 import { OpenAIArtifactEvalService } from "../ai/openai-artifact-eval.service";
+import { DiscussionPingService } from "../persistence/discussion-ping.service";
 import {
   WorkspacePersistenceService,
   type SessionArtifactEvaluation
@@ -38,7 +39,8 @@ export class SessionController {
   constructor(
     private readonly workspace: WorkspacePersistenceService,
     private readonly orchestrationQueue: OrchestrationQueueService,
-    private readonly openaiArtifactEval: OpenAIArtifactEvalService
+    private readonly openaiArtifactEval: OpenAIArtifactEvalService,
+    private readonly discussionPing: DiscussionPingService
   ) {}
 
   @Get(":sessionId/role-gap")
@@ -103,6 +105,21 @@ export class SessionController {
       ok: true,
       data: this.workspace.listInAppNotifications(sessionId)
     };
+  }
+
+  /**
+   * 워크스페이스 상태를 평가해 논의/추가 요청 알림을 `in_app_notification`에 쌓는다.
+   * Body: `{ "force": true }` 이면 동일 kind 쿨다운을 무시하고 다시 생성한다.
+   */
+  @Post(":sessionId/discussion-ping")
+  postDiscussionPing(
+    @Param("sessionId") sessionId: string,
+    @Body() body: { force?: boolean },
+    @Req() req: AuthedRequest
+  ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    const data = this.discussionPing.evaluateSession(sessionId, { force: Boolean(body?.force) });
+    return { ok: true, data };
   }
 
   @Get(":sessionId/artifacts")
