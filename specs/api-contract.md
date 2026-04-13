@@ -7,6 +7,7 @@
 - `GET /health`
 - `GET /health/db`
 - `GET /health/redis`
+- `GET /health/webhook-security`
 - `POST /auth/register`
 - `POST /auth/login`
 - `POST /auth/logout` (Bearer JWT)
@@ -28,7 +29,10 @@
 - `POST /api/vfs/snapshot` (Bearer JWT)
 - `GET /api/vfs/diff/{snapshotId}` (Bearer JWT)
 - `POST /api/vfs/approve/{snapshotId}` (Bearer JWT)
+- `GET /api/vfs/session/{sessionId}/snapshot-index` (Bearer JWT)
 - `GET /api/sessions/{sessionId}/role-gap` (Bearer JWT)
+- `GET /api/sessions/{sessionId}/integration-hints` (Bearer JWT)
+- `GET /api/sessions/{sessionId}/orchestrator-context` (Bearer JWT)
 - `PATCH /api/sessions/{sessionId}/session-profile` (Bearer JWT; body `{ humanRoleIds: string[] }`)
 - `GET /api/sessions/{sessionId}/workspace-gates` (Bearer JWT)
 - `GET /api/sessions/{sessionId}/project-state` (Bearer JWT)
@@ -52,6 +56,7 @@
 - success: `{ ok: boolean, service: string }` for `/health`
 - success: `{ ok: boolean, database: "up" | "down" }` for `/health/db`
 - success: `{ ok: boolean, redis: "disabled" | "up" | "down" }` for `/health/redis`
+- success: `{ ok: true, github: { signatureVerification, secretConfigured, allowlistRuleCount, trustProxyLikely } }` for `/health/webhook-security` (비밀값 미노출, S-2 스모크)
 - success: `{ accessToken: string }` for `/auth/register` (201) and `/auth/login` (200)
 - success: `{ ok: true }` for `/auth/logout`
 - success: `{ id, email, createdAt }` for `/users/me` (ISO 8601 `createdAt`)
@@ -64,7 +69,9 @@
 - success: `{ ok: true, data: PrValidationStatusEnvelope | null }` for GET /api/validation/status/{prNumber} — `data`가 null이면 path의 PR 번호가 숫자가 아님. 본문은 `{ prNumber, consecutiveFailures, validation: { prNumber, result, checkedAt } | null }` (`validation` null = SQLite 캐시 행 없음, streak만 의미 있을 수 있음)
 - success: `{ ok: true, data: { sessionId, integrationEvents, postgresTimeline, postgresNote, bridgeHint } }` for GET /api/integration/unified-timeline — `integrationEvents`: newest-first `IntegrationEvent[]`; `postgresTimeline`: `CollaborationEventTimelineItem[]` (`id`, `eventType`, `payload`, `sessionId`, `createdAt`), `createdAt` ascending (same order as GET `/sessions/{id}/timeline`)
 - success: SSE for GET /api/integration/stream (Redis 구독 시 통합 이벤트 JSON 문자열, 없으면 heartbeat)
-- success: `{ ok: true, data: { snapshotId, diffUrl } }` (201) for POST /api/vfs/snapshot; `{ ok: true, data: VfsDiff }` for GET /api/vfs/diff; `{ ok: true, data: VfsSnapshot }` for POST /api/vfs/approve
+- success: `{ ok: true, data: { snapshotId, diffUrl } }` (201) for POST /api/vfs/snapshot; `{ ok: true, data: VfsDiff }` for GET /api/vfs/diff; `{ ok: true, data: VfsSnapshot }` for POST /api/vfs/approve; `{ ok: true, data: [...] }` for GET /api/vfs/session/{sessionId}/snapshot-index (SQLite 메타 인덱스, 본문은 vfs-store)
+- success: `{ ok: true, data: IntegrationHints }` for GET /api/sessions/{sessionId}/integration-hints (`recommendedServerEnvLine`, `bffSyncNote`, `simulateOnlyPath`, `envSnippet` 등)
+- success: `{ ok: true, data: OrchestratorContext }` for GET /api/sessions/{sessionId}/orchestrator-context (roleGap, workspaceGates, 정책錨 등 O-1 집계)
 - error: `{ code: string, message: string }`
 
 ## Auth error codes (non-exhaustive)

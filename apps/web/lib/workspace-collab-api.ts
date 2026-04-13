@@ -84,6 +84,37 @@ export async function runWorkspaceDodVerify(
   return data;
 }
 
+/** 시뮬 Postgres 세션 Gate C — `POST /sessions/:id/verify` (JWT 불필요, 워크스페이스 DoD와 별도). */
+export async function runSimulationSessionVerify(
+  apiBase: string,
+  sessionId: string
+): Promise<{ ok: true; summary: string } | { ok: false; message: string }> {
+  const base = apiBase.replace(/\/$/, "");
+  const res = await apiFetch(`${base}/sessions/${encodeURIComponent(sessionId)}/verify`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" }
+  });
+  if (res.ok) {
+    const text = await res.text();
+    const summary =
+      text.length > 400 ? `${text.slice(0, 400)}…` : text || `HTTP ${res.status} (본문 없음)`;
+    return { ok: true, summary };
+  }
+  let message = `verify ${res.status}`;
+  try {
+    const j = (await res.json()) as { message?: string; code?: string };
+    if (typeof j?.message === "string") {
+      message = j.message;
+    } else if (typeof j?.code === "string") {
+      message = j.code;
+    }
+  } catch {
+    /* ignore */
+  }
+  return { ok: false, message };
+}
+
 export async function fetchProjectState(
   apiBase: string,
   sessionId: string
@@ -104,6 +135,11 @@ export async function fetchProjectState(
 
 export type IntegrationHints = {
   integrationWebhookSessionId: string;
+  /** API 서버 .env 한 줄 — Railway 등에 붙여넣기 */
+  recommendedServerEnvLine: string;
+  bffSyncNote: string;
+  /** 워크스페이스 없이 Postgres 시뮬만 쓸 때의 웹 경로 */
+  simulateOnlyPath: string;
   envSnippet: string;
   docPath: string;
   note: string;

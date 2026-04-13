@@ -18,6 +18,10 @@
 - API가 산출하는 회고 KPI는 `apps/api/src/session/retro-kpi.util.ts`의 `computeRetroKpisFromEvents` / `buildKpiBasisSummary`와 SQLite `integration_events` 스트림을 기준으로 한다.
 - `RetroController` 생성 리포트의 `kpiBasis` 필드는 위 유틸과 동일 근거를 한 줄로 요약한다(F-6).
 
+## REST 집계 (O-1 브리지)
+
+- `GET /api/sessions/{sessionId}/orchestrator-context` — `role-gap`, `workspace-gates`, 에이전트 정책·REST 문서 경로錨을 한 응답으로 묶어 외부 오케스트레이터·도구가 읽기 쉽게 한다.
+
 ## 관련 구현 경로
 
 | 관심사 | 코드 |

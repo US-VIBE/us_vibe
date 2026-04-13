@@ -2,6 +2,14 @@ import { SOLO_BE_ACTIVATED_AI_ROLES, type LearningSession } from "./session-type
 
 export const SESSION_STORAGE_KEY = "usvibe_learning_session";
 
+function normalizeSession(parsed: LearningSession): LearningSession {
+  const learnerRole = parsed.learnerRole ?? "backend_developer";
+  const labels = parsed.activatedAiRoleLabels;
+  const activatedAiRoleLabels =
+    Array.isArray(labels) && labels.length > 0 ? labels : [...SOLO_BE_ACTIVATED_AI_ROLES];
+  return { ...parsed, learnerRole, activatedAiRoleLabels };
+}
+
 export function loadSession(): LearningSession | null {
   if (typeof window === "undefined") return null;
   try {
@@ -9,11 +17,7 @@ export function loadSession(): LearningSession | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as LearningSession;
     if (!parsed?.sessionId || !parsed?.topic) return null;
-    if (!parsed.learnerRole) parsed.learnerRole = "backend_developer";
-    if (!parsed.activatedAiRoleLabels?.length) {
-      parsed.activatedAiRoleLabels = [...SOLO_BE_ACTIVATED_AI_ROLES];
-    }
-    return parsed;
+    return normalizeSession(parsed);
   } catch {
     return null;
   }

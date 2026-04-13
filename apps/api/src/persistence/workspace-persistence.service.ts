@@ -253,6 +253,17 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       );
       CREATE INDEX IF NOT EXISTS idx_in_app_notification_session
         ON in_app_notification (session_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS vfs_snapshot_index (
+        snapshot_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        storage_file TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_vfs_snapshot_session
+        ON vfs_snapshot_index (session_id, updated_at DESC);
     `);
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
@@ -797,5 +808,75 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       payload: JSON.parse(String(r.payload_json)),
       timestamp: r.timestamp
     })) as IntegrationEvent[];
+  }
+
+  /**
+   * VFS JSON 파일(`vfs-store`)과 동일 DB에 메타 인덱스를 둔다. SSOT 본문은 파일이며,
+   * 실 Git 반영·대시보드 목록은 이 행을 확장하는 후속 작업으로 이어진다.
+   */
+  upsertVfsSnapshotIndex(input: {
+    snapshotId: string;
+    sessionId: string;
+    agentType: string;
+    status: string;
+    storageFile: string;
+    createdAt: string;
+  }): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO vfs_snapshot_index (snapshot_id, session_id, agent_type, status, storage_file, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(snapshot_id) DO UPDATE SET
+           status = excluded.status,
+           updated_at = excluded.updated_at`
+      )
+      .run(
+        input.snapshotId,
+        input.sessionId,
+        input.agentType,
+        input.status,
+        input.storageFile,
+        input.createdAt,
+        now
+      );
+  }
+
+  listVfsSnapshotIndexForSession(
+    sessionId: string,
+    limit = 50
+  ): Array<{
+    snapshotId: string;
+    sessionId: string;
+    agentType: string;
+    status: string;
+    storageFile: string;
+    createdAt: string;
+    updatedAt: string;
+  }> {
+    const cap = Math.min(Math.max(1, limit), 100);
+    const rows = this.db
+      .prepare(
+        `SELECT snapshot_id, session_id, agent_type, status, storage_file, created_at, updated_at
+         FROM vfs_snapshot_index WHERE session_id = ? ORDER BY updated_at DESC LIMIT ?`
+      )
+      .all(sessionId, cap) as Array<{
+      snapshot_id: string;
+      session_id: string;
+      agent_type: string;
+      status: string;
+      storage_file: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+    return rows.map((r) => ({
+      snapshotId: r.snapshot_id,
+      sessionId: r.session_id,
+      agentType: r.agent_type,
+      status: r.status,
+      storageFile: r.storage_file,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
   }
 }

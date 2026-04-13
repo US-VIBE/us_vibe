@@ -7,6 +7,11 @@ const PROF_TO_SKILL: Record<LearningSession["proficiency"], string> = {
   advanced: "고급"
 };
 
+const LEARNER_ROLE_TO_API: Record<LearnerRole, string> = {
+  backend_developer: "Backend Developer",
+  frontend_developer: "Frontend Developer"
+};
+
 /**
  * Postgres 시뮬 세션 생성 — 응답 `id`를 학습 `sessionId`로 쓰면 웹훅·타임라인과 맞출 수 있음 (F-1).
  * `NEXT_PUBLIC_API_URL` 없거나 API 실패 시 `null`.
@@ -31,6 +36,20 @@ export async function createSimulationSessionForWorkspace(input: {
   if (!learningGoal || !topic) {
     return null;
   }
+  const learnerRoleApi = LEARNER_ROLE_TO_API[input.learnerRole ?? "backend_developer"];
+  const body: Record<string, unknown> = {
+    learnerRole: learnerRoleApi,
+    learningGoal,
+    topic,
+    sprintDuration,
+    skillLevel
+  };
+  if (input.activeRoles && input.activeRoles.length > 0) {
+    body.activeRoles = input.activeRoles;
+  }
+  if (input.scenarioId && input.scenarioId.trim()) {
+    body.scenarioId = input.scenarioId.trim();
+  }
   try {
     const learnerRoleLabel =
       input.learnerRole === "frontend_developer" ? "Frontend Developer" : "Backend Developer";
@@ -51,6 +70,7 @@ export async function createSimulationSessionForWorkspace(input: {
 
     const res = await apiFetch(`${base}/sessions`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body)
     });
@@ -64,5 +84,32 @@ export async function createSimulationSessionForWorkspace(input: {
     return { id: row.id };
   } catch {
     return null;
+  }
+}
+
+const UUID_V4 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * 기존 Postgres 시뮬 세션과 맞출 때: GET /sessions/:id 로 존재 여부 확인.
+ */
+export async function verifySimulationSessionExists(id: string): Promise<boolean> {
+  const trimmed = id.trim();
+  if (!UUID_V4.test(trimmed)) {
+    return false;
+  }
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (!base) {
+    return false;
+  }
+  try {
+    const res = await apiFetch(`${base}/sessions/${encodeURIComponent(trimmed)}`, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" }
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }

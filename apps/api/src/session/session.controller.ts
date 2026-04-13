@@ -65,10 +65,15 @@ export class SessionController {
     this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
     const pack = getScenarioPackById("login-mvp") ?? LOGIN_MVP_PACK;
     const snippet = renderGithubEnvSnippet(pack, sessionId);
+    const recommendedServerEnvLine = `INTEGRATION_WEBHOOK_SESSION_ID=${sessionId}`;
     return {
       ok: true,
       data: {
         integrationWebhookSessionId: sessionId,
+        recommendedServerEnvLine,
+        bffSyncNote:
+          "API 서버(Railway 등) 환경 변수에 위 한 줄을 설정하면 웹훅·코드델타가 이 학습 세션 UUID와 맞습니다. 서버 .env 파일을 앱이 직접 쓰지는 않습니다.",
+        simulateOnlyPath: "/simulate",
         envSnippet: snippet,
         docPath: "docs/collaboration-env-and-endpoints.md",
         note:
@@ -222,6 +227,46 @@ export class SessionController {
         status: "approved" as const,
         specVersion,
         approvedAt: prof.promptSpecApprovedAt
+      }
+    };
+  }
+
+  /**
+   * O-1: 워크스페이스 게이트·role-gap·시나리오 팩·agents 문서 앵커를 한 응답으로 묶어
+   * 오케스트레이터/도구가 REST에서 단일 진입점으로 읽을 수 있게 한다.
+   */
+  @Get(":sessionId/orchestrator-context")
+  orchestratorContext(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    const prof = this.workspace.getSessionProfile(sessionId);
+    const contract = this.workspace.getContractState(sessionId);
+    const pr = this.workspace.getPrSnapshot(sessionId);
+    const pack = getScenarioPackById("login-mvp") ?? LOGIN_MVP_PACK;
+    return {
+      ok: true,
+      data: {
+        sessionId,
+        defaultScenarioPackId: pack.id,
+        roleGap: buildRoleGapPayload(sessionId, prof),
+        workspaceGates: {
+          promptSpecApproved: this.workspace.isPromptSpecApproved(sessionId),
+          promptSpecApprovedVersion: prof.promptSpecApprovedVersion,
+          contractValidatedPass: contract.lastValidation?.passed ?? false,
+          contractApproved: contract.contractApproved,
+          prPhase: pr.phase,
+          prRevisionRound: pr.revisionRound
+        },
+        agentPolicyAnchors: [
+          "agents/orchestrator/README.md",
+          "agents/orchestrator/routing-rules.md",
+          "agents/orchestrator/supervisor-policy.md",
+          "agents/orchestrator/role-gap-detector-policy.md"
+        ],
+        restAnchors: {
+          scenariosCatalog: "GET /scenarios/catalog",
+          simulationSessions: "POST /sessions",
+          workspaceGates: "GET /api/sessions/:sessionId/workspace-gates"
+        }
       }
     };
   }

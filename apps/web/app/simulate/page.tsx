@@ -615,6 +615,15 @@ export default function SimulatePage() {
         <strong>채팅 뷰</strong>(타임라인 + 학습자 메시지)를 한 화면에서 씁니다. 모바일 푸시·서버 Web Push는 포함하지
         않습니다.
       </p>
+      <p style={{ color: "#374151", fontSize: 14, lineHeight: 1.5 }}>
+        <strong>시뮬만 쓰기:</strong> 이 화면은 Postgres 시뮬·타임라인 중심입니다.{" "}
+        <Link href="/" style={{ color: "#2563eb" }}>
+          온보딩·워크스페이스
+        </Link>
+        에서 동일 <code>sessionId</code>로 시작하면 웹훅 SQLite 이벤트와 통합 타임라인을 맞추기 쉽습니다. 서버{" "}
+        <code>INTEGRATION_WEBHOOK_SESSION_ID</code>는 워크스페이스 연동 패널의 BFF 힌트로 복사할 수 있습니다(
+        <code>docs/integration-sandbox/session-id-sync.md</code>).
+      </p>
 
       <section
         style={{
