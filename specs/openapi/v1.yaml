@@ -50,6 +50,37 @@ paths:
                   redis:
                     type: string
                     enum: [disabled, up, down]
+  /health/webhook-security:
+    get:
+      summary: GitHub webhook hardening flags (no secret values)
+      responses:
+        "200":
+          description: Non-sensitive webhook security posture
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, github]
+                properties:
+                  ok:
+                    type: boolean
+                  github:
+                    type: object
+                    required:
+                      - signatureVerification
+                      - secretConfigured
+                      - allowlistRuleCount
+                      - trustProxyLikely
+                    properties:
+                      signatureVerification:
+                        type: string
+                        enum: [none, hmac_when_secret_configured, required]
+                      secretConfigured:
+                        type: boolean
+                      allowlistRuleCount:
+                        type: integer
+                      trustProxyLikely:
+                        type: boolean
   /auth/register:
     post:
       summary: Register a user
@@ -650,6 +681,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ContractError"
+  /api/vfs/session/{sessionId}/snapshot-index:
+    get:
+      summary: VFS snapshot metadata index (SQLite; file bodies remain under vfs-store)
+      operationId: getVfsSnapshotIndexBySession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok + data rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/sessions/{sessionId}/role-gap:
     get:
       summary: Workspace role gap (human vs AI agents)
@@ -687,6 +739,40 @@ paths:
                   type: array
                   items:
                     type: string
+      responses:
+        "200":
+          description: ok + data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/integration-hints:
+    get:
+      summary: Webhook sessionId BFF — env snippet and recommended INTEGRATION_WEBHOOK_SESSION_ID line
+      operationId: getWorkspaceIntegrationHints
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
+      responses:
+        "200":
+          description: ok + data (IntegrationHints)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJsonEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{sessionId}/orchestrator-context:
+    get:
+      summary: O-1 aggregate — gates, role gap, agent policy anchors
+      operationId: getWorkspaceOrchestratorContext
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceSessionId"
       responses:
         "200":
           description: ok + data

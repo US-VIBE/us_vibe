@@ -17,10 +17,10 @@
 3. **API 서버 `.env`**: `INTEGRATION_WEBHOOK_SESSION_ID=<위와 동일 UUID>` ([§3.1 운영 정책](../collaboration-env-and-endpoints.md)).
 4. 웹훅을 쏘면 [`IntegrationTimelineBridgeService`](../../apps/api/src/integration/integration-timeline-bridge.service.ts)가 UUID일 때 Postgres `collaboration_events`에도 append한다.
 
-## 아직 없는 자동화 (향후 B/C)
+## BFF·시뮬 전용 경로 (구현 상태)
 
-- 서버 `INTEGRATION_WEBHOOK_SESSION_ID`를 온보딩이 **자동으로 읽어 동기화**하는 BFF(현재는 배포 시 수동 설정).
-- “시뮬만 쓰기” 모드에서 워크스페이스 없이 `sessionId`를 시뮬 id로만 쓰는 단순 경로.
+- **BFF 힌트:** 워크스페이스 **연동 도구** 패널과 `GET /api/sessions/{sessionId}/integration-hints`가 `recommendedServerEnvLine`(`INTEGRATION_WEBHOOK_SESSION_ID=…`)·`bffSyncNote`를 내려준다. 서버 env는 여전히 호스트(Railway 등)에서 설정해야 하며, 앱이 원격 `.env`를 직접 쓰지는 않는다.
+- **시뮬만 쓰기:** [`/simulate`](../../apps/web/app/simulate/page.tsx) 화면 안내와 힌트의 `simulateOnlyPath`로 Postgres 시뮬·타임라인 전용 흐름을 분리해 안내한다. 워크스페이스 없이 시뮬만 쓸 때는 같은 UUID를 나중에 온보딩에 붙이면 웹훅과 통합 타임라인을 맞출 수 있다.
 
 ## FE 주의 (F-1)
 
@@ -29,5 +29,6 @@
 
 ## 관련 API
 
+- `GET /api/sessions/{sessionId}/integration-hints` — 웹훅 sessionId 정렬용 env 한 줄·문구(BFF)
 - `GET /api/integration/unified-timeline?sessionId=<UUID>` — SQLite + Postgres 병합 조회
 - `GET /sessions/{id}/timeline` — Postgres만
