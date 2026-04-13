@@ -460,8 +460,8 @@ export function WorkspaceApp({
           text: `회고 리포트 생성됨 (${new Date(report.createdAt).toLocaleString("ko-KR")}).`
         }
       ]);
-    } catch {
-      setRetroErr("회고 리포트 생성에 실패했습니다.");
+    } catch (e: unknown) {
+      setRetroErr(e instanceof Error ? e.message : "회고 리포트 생성에 실패했습니다.");
     } finally {
       setRetroBusy(false);
     }
@@ -1261,7 +1261,11 @@ export function WorkspaceApp({
                     </button>
                   </div>
                 )}
-                {contractErr && <p className="mt-3 text-sm text-red-600">{contractErr}</p>}
+                {contractErr ? (
+                  <p className="mt-3 text-sm text-red-600" role="alert">
+                    {contractErr}
+                  </p>
+                ) : null}
               </section>
             )}
 

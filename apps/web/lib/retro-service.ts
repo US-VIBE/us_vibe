@@ -9,6 +9,16 @@ function unwrap<T>(json: unknown): T | null {
   return json as T;
 }
 
+function failureMessageFromJson(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  const o = json as Record<string, unknown>;
+  if (o.ok === false) {
+    if (typeof o.message === "string") return o.message;
+    if (typeof o.code === "string") return o.code;
+  }
+  return null;
+}
+
 const apiBase = () => process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
 
 function mockGenerateReport(session: LearningSession): RetroReport {
@@ -58,28 +68,35 @@ export async function fetchRetroReports(session: LearningSession): Promise<Retro
 
 /**
  * POST /api/sessions/:sessionId/retro/generate
+ * API URL이 설정된 경우 실패 시 목업으로 숨기지 않고 오류를 던져 UI(`retroErr`)에 표시한다 (F-6).
  */
 export async function generateRetroReport(session: LearningSession): Promise<RetroReport> {
   const base = apiBase();
-  if (base) {
-    try {
-      const res = await apiFetch(
-        `${base}/api/sessions/${encodeURIComponent(session.sessionId)}/retro/generate`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({})
-        }
-      );
-      if (res.ok) {
-        const json: unknown = await res.json();
-        const data = unwrap<{ report: RetroReport }>(json);
-        if (data?.report) return data.report;
-      }
-    } catch (e) {
-      console.warn("[retro] generate API 실패, 목업", e);
-    }
+  if (!base) {
+    return mockGenerateReport(session);
   }
-  return mockGenerateReport(session);
+  const res = await apiFetch(
+    `${base}/api/sessions/${encodeURIComponent(session.sessionId)}/retro/generate`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({})
+    }
+  );
+  const json: unknown = await res.json().catch(() => null);
+  if (res.ok && json && typeof json === "object") {
+    const fail = failureMessageFromJson(json);
+    if (fail) {
+      throw new Error(fail);
+    }
+    const data = unwrap<{ report: RetroReport }>(json);
+    if (data?.report) {
+      return data.report;
+    }
+  } else if (!res.ok) {
+    const fromBody = json ? failureMessageFromJson(json) : null;
+    throw new Error(fromBody ?? `retro/generate ${res.status}`);
+  }
+  throw new Error("서버 응답에 report가 없습니다.");
 }
