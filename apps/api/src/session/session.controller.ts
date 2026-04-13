@@ -15,7 +15,6 @@ import {
   UseInterceptors
 } from "@nestjs/common";
 import * as fs from "fs";
-import { createReadStream } from "fs";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
@@ -27,8 +26,9 @@ import {
 } from "../persistence/workspace-persistence.service";
 import { getScenarioPackById, renderGithubEnvSnippet } from "../scenarios/scenario-registry";
 import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
-import { buildRoleGapPayload } from "./role-gap.util";
+import { OrchestrationQueueService } from "../integration/orchestration-queue.service";
 import { chatImageDownloadSecret, signChatImageDownload } from "./chat-image-download.util";
+import { buildRoleGapPayload } from "./role-gap.util";
 
 /**
  * 워크스페이스 세션 — role-gap, Prompt-to-Spec, 게이트 조회
@@ -38,6 +38,7 @@ import { chatImageDownloadSecret, signChatImageDownload } from "./chat-image-dow
 export class SessionController {
   constructor(
     private readonly workspace: WorkspacePersistenceService,
+    private readonly orchestrationQueue: OrchestrationQueueService,
     private readonly openaiArtifactEval: OpenAIArtifactEvalService,
     private readonly discussionPing: DiscussionPingService
   ) {}
@@ -169,8 +170,16 @@ export class SessionController {
         sessionId,
         kind: "artifact_uploaded",
         title: "산출물 접수",
-        body: `${record.kind} (${record.originalName}) 루브릭 통과: ${record.rubric.passed ? "예" : "아니오"}`
+        body: `${record.kind} (${record.originalName}) 루브릭 통과: ${record.rubric.passed ? "예" : "아니오"} (AI 검토를 시작합니다.)`
       });
+
+      // AI 기반 평가 큐에 등록
+      void this.orchestrationQueue.enqueue({
+        sessionId,
+        type: "ARTIFACT_REVIEW",
+        artifactId: record.id
+      });
+
       return { ok: true, data: record };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -290,7 +299,7 @@ export class SessionController {
         message: "저장된 파일을 읽을 수 없습니다."
       });
     }
-    return new StreamableFile(createReadStream(row.storedPath), {
+    return new StreamableFile(fs.createReadStream(row.storedPath), {
       type: row.mime
     });
   }

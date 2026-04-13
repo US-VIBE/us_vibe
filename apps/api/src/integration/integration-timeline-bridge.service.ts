@@ -72,8 +72,15 @@ export class IntegrationTimelineBridgeService {
       case "VFS_SNAPSHOT_CREATED":
       case "VFS_APPROVED":
       case "CONTRACT_CHANGED":
+      case "AGENT_REPLY":
         return {
           eventType: "agent_reply",
+          payload: { ...envelope, ...payloadObj }
+        };
+      case "ORCHESTRATION_STARTED":
+      case "ORCHESTRATION_COMPLETED":
+        return {
+          eventType: "supervisor_route",
           payload: { ...envelope, ...payloadObj }
         };
       default:

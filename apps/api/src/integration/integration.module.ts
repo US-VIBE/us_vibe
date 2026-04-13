@@ -19,6 +19,7 @@ import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.service";
 import { IntegrationRedisReplayQueueService } from "./integration-redis-replay-queue.service";
 import { WebhookPrValidationService } from "./webhook-pr-validation.service";
+import { OrchestrationQueueService } from "./orchestration-queue.service";
 
 @Module({
   imports: [AuthModule, CollaborationModule, SessionsModule],
@@ -38,11 +39,12 @@ import { WebhookPrValidationService } from "./webhook-pr-validation.service";
     IntegrationRedisPubSubService,
     IntegrationRedisReplayQueueService,
     WebhookPrValidationService,
+    OrchestrationQueueService,
     IntegrationEventFanoutService,
     IntegrationTimelineBridgeService,
     /** SQLite append + optional Redis Pub/Sub(INTEGRATION_REDIS_PUBLISHER) */
     { provide: EVENT_PUBLISHER, useClass: EventPublisherSqlite },
   ],
-  exports: [ValidationService, VfsService, ReportService, EVENT_PUBLISHER],
+  exports: [ValidationService, VfsService, ReportService, EVENT_PUBLISHER, OrchestrationQueueService],
 })
 export class IntegrationModule {}

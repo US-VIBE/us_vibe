@@ -15,7 +15,7 @@ import { ContractGateController } from "./session/contract-gate.controller";
 import { PrReviewController } from "./session/pr-review.controller";
 import { ProjectStateController } from "./session/project-state.controller";
 import { RetroController } from "./session/retro.controller";
-import { ChatImageFileController } from "./session/chat-image-file.controller";
+import { ChatImageFilesController } from "./session/chat-image-files.controller";
 import { SessionController } from "./session/session.controller";
 import { WorkspaceDodVerifyController } from "./session/workspace-dod-verify.controller";
 import { ScenariosController } from "./scenarios/scenarios.controller";
@@ -42,7 +42,7 @@ import { SessionsModule } from "./sessions/sessions.module";
     AppController,
     ScenariosController,
     SessionController,
-    ChatImageFileController,
+    ChatImageFilesController,
     PrReviewController,
     ContractGateController,
     RetroController,

@@ -12,7 +12,8 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "@us-vibe/backend": ["../../src/backend/src/index.ts"]
+      "@us-vibe/backend": ["../../src/backend/src/index.ts"],
+      "@specs/data-model/types": ["../../specs/data-model/types.ts"]
     },
     "incremental": true,
     "strict": true,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { IntegrationEvent } from "../../../specs/data-model/types";
+import type { IntegrationEvent } from "@specs/data-model/types";
 import {
   buildRetroKpiEvidence,
   buildKpiBasisSummary,

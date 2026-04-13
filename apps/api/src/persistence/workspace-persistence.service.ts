@@ -773,8 +773,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, evaluation_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -785,6 +785,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         input.buffer.length,
         storedPath,
         JSON.stringify(rubric),
+        null,
         createdAt
       );
     return {
@@ -796,9 +797,20 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       sizeBytes: input.buffer.length,
       storedPath,
       rubric,
-      createdAt,
-      evaluation: null
+      evaluation: null,
+      createdAt
     };
+  }
+
+  updateArtifactAiReview(
+    artifactId: string,
+    rubric: SessionArtifactRecord["rubric"]
+  ): void {
+    this.db
+      .prepare(
+        "UPDATE session_artifact SET rubric_json = ? WHERE id = ?"
+      )
+      .run(JSON.stringify(rubric), artifactId);
   }
 
   saveSessionChatImage(input: {
