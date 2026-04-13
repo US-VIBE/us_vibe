@@ -1,0 +1,12 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: usvibe-api:latest
+    container_name: usvibe-api
+    restart: always
+    ports:
+      - "80:8080" # 외부 포트 80을 내부 8080으로 연결
+    env_file:
+      - .env
