@@ -53,25 +53,54 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
       );
       return;
     }
+
+    const role = (process.env.BULLMQ_PROCESS_ROLE ?? "api").trim().toLowerCase();
+    const separateWorker = envFlagTrue(process.env.INTEGRATION_BULLMQ_SEPARATE_WORKER);
+
+    const runJob = async (job: { data: unknown }) => {
+      const { prNumber, commitSha } = job.data as PrValidationJob;
+      await this.runQueuedValidation(prNumber, commitSha);
+    };
+
     try {
       this.bullConnection = new Redis(url, { maxRetriesPerRequest: null });
-      this.bullQueue = new Queue(BULL_QUEUE_NAME, {
-        connection: this.bullConnection,
-      });
-      this.bullWorker = new Worker(
-        BULL_QUEUE_NAME,
-        async (job) => {
-          const { prNumber, commitSha } = job.data as PrValidationJob;
-          await this.runQueuedValidation(prNumber, commitSha);
-        },
-        { connection: this.bullConnection, concurrency: 1 },
-      );
-      this.bullWorker.on("failed", (job, err) => {
-        this.logger.error(
-          `BullMQ job 실패 id=${job?.id ?? "?"}: ${(err as Error).message}`,
+
+      if (role === "worker") {
+        this.bullWorker = new Worker(BULL_QUEUE_NAME, runJob, {
+          connection: this.bullConnection,
+          concurrency: 1
+        });
+        this.bullWorker.on("failed", (job, err) => {
+          this.logger.error(
+            `BullMQ job 실패 id=${job?.id ?? "?"}: ${(err as Error).message}`
+          );
+        });
+        this.logger.log(
+          `BullMQ worker-only: ${BULL_QUEUE_NAME} (npm run start:bullmq-worker)`,
         );
+        return;
+      }
+
+      this.bullQueue = new Queue(BULL_QUEUE_NAME, {
+        connection: this.bullConnection
       });
-      this.logger.log(`BullMQ 큐 활성화: ${BULL_QUEUE_NAME}`);
+
+      if (!separateWorker) {
+        this.bullWorker = new Worker(BULL_QUEUE_NAME, runJob, {
+          connection: this.bullConnection,
+          concurrency: 1
+        });
+        this.bullWorker.on("failed", (job, err) => {
+          this.logger.error(
+            `BullMQ job 실패 id=${job?.id ?? "?"}: ${(err as Error).message}`
+          );
+        });
+      } else {
+        this.logger.log(
+          `BullMQ Queue만 사용 (${BULL_QUEUE_NAME}) — 워커는 start:bullmq-worker + BULLMQ_PROCESS_ROLE=worker`,
+        );
+      }
+      this.logger.log(`BullMQ Queue 활성화: ${BULL_QUEUE_NAME}`);
     } catch (e) {
       this.logger.error(`BullMQ 초기화 실패: ${(e as Error).message}`);
       this.bullQueue = null;
