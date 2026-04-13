@@ -186,6 +186,8 @@ nano ~/.ssh/authorized_keys
 이후 **`develop`에 push**하면 워크플로 `develop`이 **CI → SSH로 `git pull` + `docker compose`**를 실행합니다.  
 워크플로 조건은 저장소가 **`US-VIBE/us_vibe`**일 때만 `deploy-vps`가 돌아가도록 되어 있습니다.
 
+**`deploy-vps`가 수 초 안에 실패할 때:** Actions 로그에서 `Check VPS secrets` 단계 메시지를 확인하세요. `VPS_HOST` / `VPS_USER` / `VPS_SSH_KEY` 중 하나가 비어 있으면 SSH가 바로 끊깁니다. 시크릿은 채워 두었는데도 실패하면 **보안 그룹 22(또는 `VPS_SSH_PORT`) 인바운드**, **authorized_keys에 배포 공개키 등록**, **키에 passphrase 없음**을 확인하세요.
+
 ---
 
 ## 12. HTTPS (리버스 프록시 권장)
