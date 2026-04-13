@@ -256,4 +256,23 @@ export class SessionsService {
       );
     }
   }
+
+  async orchestrate(id: string, body: { userMessage?: string }) {
+    try {
+      const msg = body.userMessage ?? "현재 상태를 브리핑하고 다음 단계를 제안해줘.";
+      return await this.scenarioRunner.orchestrate(id, msg);
+    } catch (e) {
+      if (e instanceof HttpException) {
+        throw e;
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      throw new HttpException(
+        {
+          code: "ORCHESTRATION_FAILED",
+          message
+        },
+        502
+      );
+    }
+  }
 }
