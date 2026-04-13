@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getApiBaseUrl } from "../lib/api-base";
+import { getApiBaseUrl, isPublicApiConfigured } from "../lib/api-base";
 
 type HealthOk = { ok: true; service: string };
 type State =
@@ -15,6 +15,14 @@ export function ApiStatus() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!isPublicApiConfigured() || !base) {
+      setState({
+        status: "error",
+        message:
+          "Nest API URL이 없습니다. Netlify(또는 프론트 호스트) 환경 변수에 NEXT_PUBLIC_API_URL(끝 / 없이)을 설정한 뒤 다시 배포하세요."
+      });
+      return;
+    }
     const url = `${base}/health`;
 
     void (async () => {

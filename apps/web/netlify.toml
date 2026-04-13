@@ -1,5 +1,11 @@
 # Netlify: Base directory = repo root(기본), Package directory = apps/web 로 사이트 생성 권장.
 # 설치·빌드 명령은 저장소 루트에서 실행됩니다(https://docs.netlify.com/build/configure-builds/monorepos/).
+#
+# Nest API는 이 사이트와 분리(Render/Fly/Cloud Run 등). 비밀·URL은 Netlify UI
+# Site configuration → Environment variables 에만 넣는다(커밋 금지).
+#   NEXT_PUBLIC_API_URL=https://your-api.example.com
+#   NEXT_PUBLIC_API_BASE_URL=위와 동일 권장(시뮬 등)
+#   GEMINI_API_KEY 등 → apps/web/app/api/chat 등 서버 라우트용
 [build]
   command = "npm ci && npm run build -w web"
 

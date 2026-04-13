@@ -231,6 +231,11 @@ export default function SimulatePage() {
 
   const refresh = useCallback(async () => {
     const id = sessionId.trim();
+    if (!api) {
+      setSession(null);
+      setTimeline([]);
+      return;
+    }
     if (!id) {
       setSession(null);
       setTimeline([]);
@@ -249,6 +254,16 @@ export default function SimulatePage() {
   useEffect(() => {
     let cancelled = false;
     const checkEnv = async () => {
+      if (!api) {
+        if (!cancelled) {
+          setEnv({
+            apiOk: false,
+            dbOk: false,
+            checkedAt: new Date().toLocaleTimeString()
+          });
+        }
+        return;
+      }
       try {
         const h = await fetch(`${api}/health`);
         const hJson = (await h.json()) as { ok?: boolean };
@@ -615,6 +630,31 @@ export default function SimulatePage() {
         <strong>채팅 뷰</strong>(타임라인 + 학습자 메시지)를 한 화면에서 씁니다. 모바일 푸시·서버 Web Push는 포함하지
         않습니다.
       </p>
+      {!api ? (
+        <section
+          style={{
+            marginTop: 16,
+            padding: 16,
+            background: "#fef2f2",
+            borderRadius: 8,
+            border: "1px solid #fecaca",
+            color: "#7f1d1d",
+            fontSize: 14,
+            lineHeight: 1.55
+          }}
+        >
+          <strong>Nest API 주소가 설정되지 않았습니다.</strong> Netlify(또는 Next 호스팅)에{" "}
+          <code style={{ background: "#fee2e2", padding: "2px 6px", borderRadius: 4 }}>
+            NEXT_PUBLIC_API_URL
+          </code>{" "}
+          (필요 시{" "}
+          <code style={{ background: "#fee2e2", padding: "2px 6px", borderRadius: 4 }}>
+            NEXT_PUBLIC_API_BASE_URL
+          </code>
+          )에 Render/Fly 등에 둔 API의 <code>https://…</code> 를 넣고 <strong>다시 배포</strong>하세요. 로컬은{" "}
+          <code>apps/web/.env.local</code> 입니다.
+        </section>
+      ) : null}
       <p style={{ color: "#374151", fontSize: 14, lineHeight: 1.5 }}>
         <strong>시뮬만 쓰기:</strong> 이 화면은 Postgres 시뮬·타임라인 중심입니다.{" "}
         <Link href="/" style={{ color: "#2563eb" }}>
@@ -719,8 +759,9 @@ export default function SimulatePage() {
             터미널: <code>npm run dev:stack</code> 또는 DB 기동 + <code>npm run migrate</code> 후 API
           </li>
           <li>
-            이 페이지 API 주소: <code>{api}</code> (<code>apps/web/.env.local</code>의{" "}
-            <code>NEXT_PUBLIC_API_BASE_URL</code>)
+            이 페이지 API 주소: <code>{api || "(미설정)"}</code> — 로컬은{" "}
+            <code>apps/web/.env.local</code>, Netlify는 Site → Environment variables 의{" "}
+            <code>NEXT_PUBLIC_API_URL</code>
           </li>
         </ul>
         <p style={{ margin: "8px 0 0", fontSize: 14 }}>
