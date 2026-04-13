@@ -1,0 +1,20 @@
+# US Vibe — 웹(Next) 전용 Netlify 사이트 설정(모노레포).
+# https://docs.netlify.com/build/configure-builds/monorepos/
+#
+# Netlify UI → Project configuration → Build & deploy → Build settings (필수):
+#   Base directory:        비움 (저장소 루트)
+#   Package directory:     apps/web
+#   Publish directory:     비움  (아래 publish + 플러그인이 처리)
+#
+# 환경 변수 NETLIFY_NEXT_PLUGIN_SKIP=true 이면 Next 런타임이 꺼져 전 경로 404.
+# UI 에서 Next 런타임 플러그인을 또 추가했다면 이 toml 의 [[plugins]] 와 중복되지 않게 하나만 둔다.
+#
+[build]
+  command = "npm ci && npm run build -w web"
+  publish = "apps/web/.next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
