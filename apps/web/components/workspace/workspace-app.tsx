@@ -405,7 +405,16 @@ export function WorkspaceApp({
       ]);
     } catch (e) {
       if (e instanceof ContractGateError) {
-        setContractErr(`[${e.code}] ${e.message}`);
+        const line = `[${e.code}] ${e.message}`;
+        setContractErr(line);
+        setMessages((m) => [
+          ...m,
+          {
+            id: `sys-contract-val-err-${Date.now()}`,
+            kind: "system",
+            text: `계약 검증 거부: ${line}`
+          }
+        ]);
       } else {
         setContractErr("검증 요청에 실패했습니다.");
       }
@@ -436,7 +445,16 @@ export function WorkspaceApp({
       ]);
     } catch (e) {
       if (e instanceof ContractGateError) {
-        setContractErr(`[${e.code}] ${e.message}`);
+        const line = `[${e.code}] ${e.message}`;
+        setContractErr(line);
+        setMessages((m) => [
+          ...m,
+          {
+            id: `sys-contract-app-err-${Date.now()}`,
+            kind: "system",
+            text: `계약 승인 거부: ${line}`
+          }
+        ]);
       } else {
         setContractErr(e instanceof Error ? e.message : "승인에 실패했습니다.");
       }
@@ -1292,7 +1310,11 @@ export function WorkspaceApp({
                     {retroBusy ? "생성 중…" : "회고 리포트 생성"}
                   </button>
                 </div>
-                {retroErr && <p className="mt-2 text-sm text-red-600">{retroErr}</p>}
+                {retroErr && (
+                  <p className="mt-2 text-sm text-red-600" role="alert">
+                    {retroErr}
+                  </p>
+                )}
 
                 {retroReports.length > 0 && (
                   <div className="mt-4">
