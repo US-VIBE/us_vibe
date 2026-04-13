@@ -22,11 +22,11 @@ function buildHistory(
 }
 
 function mockReply(replier: InjectedAgent): string {
-  return `${replier.displayName}입니다. 메시지 확인했습니다. (목업 응답 — apps/web/.env.local에 GEMINI_API_KEY 또는 OPENAI_API_KEY를 넣고 dev 서버를 재시작하세요.)`;
+  return `${replier.displayName}입니다. 메시지 확인했습니다. (목업 응답 — apps/web/.env.local에 OPENAI_API_KEY를 넣고 dev 서버를 재시작하세요. Gemini는 CHAT_PROVIDER=auto|gemini 일 때 GEMINI_API_KEY.)`;
 }
 
 /**
- * 에이전트 답변: 서버 `POST /api/chat` — CHAT_PROVIDER·키에 따라 Gemini/OpenAI(및 auto 폴백). 503만 목업.
+ * 에이전트 답변: 서버 `POST /api/chat` — 기본 OpenAI; CHAT_PROVIDER로 Gemini·auto 폴백. 503만 목업.
  */
 export async function fetchAgentReply(input: {
   session: LearningSession;
