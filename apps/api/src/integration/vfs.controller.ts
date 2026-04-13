@@ -70,10 +70,41 @@ export class VfsController {
     };
     await this.eventPublisher.publish(event);
 
+    this.workspace.upsertVfsSnapshotIndex({
+      snapshotId: snapshot.snapshotId,
+      sessionId: snapshot.sessionId,
+      agentType: snapshot.agentType,
+      status: snapshot.status,
+      storageFile: `${snapshot.snapshotId}.json`,
+      createdAt: snapshot.createdAt
+    });
+
     return {
       ok: true,
       data: { snapshotId: snapshot.snapshotId, diffUrl },
     };
+  }
+
+  @Get("session/:sessionId/snapshot-index")
+  async listSnapshotIndex(
+    @Param("sessionId") sessionId: string,
+    @Req() req: AuthedRequest
+  ): Promise<
+    ApiResponse<
+      Array<{
+        snapshotId: string;
+        sessionId: string;
+        agentType: string;
+        status: string;
+        storageFile: string;
+        createdAt: string;
+        updatedAt: string;
+      }>
+    >
+  > {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    const rows = this.workspace.listVfsSnapshotIndexForSession(sessionId);
+    return { ok: true, data: rows };
   }
 
   @Get("diff/:snapshotId")
@@ -109,6 +140,15 @@ export class VfsController {
       timestamp: new Date().toISOString(),
     };
     await this.eventPublisher.publish(event);
+
+    this.workspace.upsertVfsSnapshotIndex({
+      snapshotId: snapshot.snapshotId,
+      sessionId: snapshot.sessionId,
+      agentType: snapshot.agentType,
+      status: snapshot.status,
+      storageFile: `${snapshot.snapshotId}.json`,
+      createdAt: snapshot.createdAt
+    });
 
     this.logger.log(`VFS 승인 이벤트 발행 완료: ${snapshotId}`);
     return { ok: true, data: snapshot };

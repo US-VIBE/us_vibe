@@ -32,8 +32,8 @@ export interface VfsDiff {
   }>;
 }
 
-// TODO: B(백엔드) DATABASE_URL 확정 후 save() / load() / list() 내부를 DB 저장으로 교체한다.
-// 인터페이스는 그대로 유지하고 내부 구현만 교체하면 된다.
+// 스냅샷 메타(vfs_snapshot_index)는 SQLite(WorkspacePersistenceService) + GET /api/vfs/session/:sessionId/snapshot-index.
+// TODO: 본문 JSON(vfs-store)을 DB로 옮기고, 승인 시 실 Git 브랜치 반영 — 인터페이스는 유지한 채 내부만 교체.
 @Injectable()
 export class VfsService {
   private readonly logger = new Logger(VfsService.name);
