@@ -17,7 +17,7 @@ import * as fs from "fs";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
-import { GeminiService } from "../ai/gemini.service";
+import { OpenAIArtifactEvalService } from "../ai/openai-artifact-eval.service";
 import {
   WorkspacePersistenceService,
   type SessionArtifactEvaluation
@@ -34,7 +34,7 @@ import { buildRoleGapPayload } from "./role-gap.util";
 export class SessionController {
   constructor(
     private readonly workspace: WorkspacePersistenceService,
-    private readonly gemini: GeminiService
+    private readonly openaiArtifactEval: OpenAIArtifactEvalService
   ) {}
 
   @Get(":sessionId/role-gap")
@@ -181,11 +181,11 @@ export class SessionController {
     @Req() req: AuthedRequest
   ) {
     this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
-    if (!this.gemini.isConfigured()) {
+    if (!this.openaiArtifactEval.isConfigured()) {
       throw new ServiceUnavailableException({
         ok: false,
-        code: "GEMINI_NOT_CONFIGURED",
-        message: "산출물 AI 평가에는 API 환경에 GEMINI_API_KEY가 필요합니다."
+        code: "OPENAI_NOT_CONFIGURED",
+        message: "산출물 AI 평가에는 API 환경에 OPENAI_API_KEY가 필요합니다. (비전: gpt-4o-mini 등)"
       });
     }
     const art = this.workspace.getSessionArtifact(sessionId, artifactId);
@@ -238,7 +238,7 @@ export class SessionController {
 
     const base64 = buffer.toString("base64");
     try {
-      const { text, model, promptVersion } = await this.gemini.evaluateArtifactImage({
+      const { text, model, promptVersion } = await this.openaiArtifactEval.evaluateImage({
         mime: art.mime,
         base64,
         kind: art.kind
