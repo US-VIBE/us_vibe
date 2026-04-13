@@ -1,0 +1,54 @@
+# VPS 프로덕션용. 저장소 루트에서 실행:
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.deploy up -d --build
+#
+# 최초 1회: deploy/env.deploy.example 을 deploy/.env.deploy 로 복사해 값을 채우세요.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: usvibe
+    volumes:
+      - usvibe_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    env_file:
+      - .env.deploy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PUBLISH_PORT:-4000}:4000"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    env_file:
+      - .env.deploy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PUBLISH_PORT:-3000}:3000"
+
+volumes:
+  usvibe_pgdata:
