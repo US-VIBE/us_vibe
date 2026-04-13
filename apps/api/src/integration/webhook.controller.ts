@@ -15,7 +15,10 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { Request } from "express";
 import { EVENT_PUBLISHER, IEventPublisher } from "./event-publisher.interface";
 import type { IntegrationEvent, IntegrationEventType } from "../../../../specs/data-model/types";
-import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import {
+  WorkspacePersistenceService,
+  type WebhookIngestAuditOutcome,
+} from "../persistence/workspace-persistence.service";
 import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 import { WebhookPrValidationService } from "./webhook-pr-validation.service";
 import {
@@ -45,6 +48,15 @@ function envFlagTrue(value: string | undefined): boolean {
   return v === "1" || v === "true";
 }
 
+function singleHeader(v: string | string[] | undefined): string | null {
+  if (v == null) {
+    return null;
+  }
+  const s = Array.isArray(v) ? v[0] : v;
+  const t = typeof s === "string" ? s.trim() : "";
+  return t.length > 0 ? t : null;
+}
+
 @Controller("webhooks")
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
@@ -69,11 +81,23 @@ export class WebhookController {
   @HttpCode(200)
   async handleGitHubWebhook(
     @Req() req: RawBodyRequest<Request>,
-    @Headers("x-hub-signature-256") signature: string,
-    @Headers("x-github-event") eventName: string,
+    @Headers("x-hub-signature-256") signatureHeader: string | string[] | undefined,
+    @Headers("x-github-event") eventHeader: string | string[] | undefined,
+    @Headers("x-github-delivery") deliveryHeader: string | string[] | undefined,
     @Body() payload: GitHubPrPayload | GitHubPushPayload,
   ): Promise<{ received: boolean }> {
+    const deliveryId = singleHeader(deliveryHeader);
+    const eventName = singleHeader(eventHeader) ?? "unknown";
+    const trustProxy = envFlagTrue(process.env.WEBHOOK_TRUST_PROXY);
+    const clientIp = resolveWebhookClientIp(req as Request, trustProxy) ?? null;
+    const auditBase = { deliveryId, eventName, clientIp };
+
     if (envFlagTrue(process.env.GITHUB_WEBHOOK_REQUIRE_SIGNATURE) && !this.webhookSecret) {
+      this.tryWebhookAudit({
+        ...auditBase,
+        outcome: "rejected_signature",
+        detail: "require_sig_without_secret",
+      });
       throw new UnauthorizedException(
         "GITHUB_WEBHOOK_REQUIRE_SIGNATURE 가 켜져 있으면 GITHUB_WEBHOOK_SECRET 이 필요합니다.",
       );
@@ -85,10 +109,14 @@ export class WebhookController {
       "";
     const ipRules = parseWebhookAllowlistRules(allowRaw);
     if (ipRules.length > 0) {
-      const trustProxy = envFlagTrue(process.env.WEBHOOK_TRUST_PROXY);
-      const ip = resolveWebhookClientIp(req as Request, trustProxy);
+      const ip = clientIp;
       if (!ip || !isClientIpAllowed(ip, ipRules)) {
         this.logger.warn(`Webhook IP 거부: ${ip ?? "unknown"}`);
+        this.tryWebhookAudit({
+          ...auditBase,
+          outcome: "rejected_ip",
+          detail: ip ?? "no_resolved_ip",
+        });
         throw new ForbiddenException("허용되지 않은 클라이언트입니다.");
       }
     }
@@ -97,9 +125,15 @@ export class WebhookController {
     if (this.webhookSecret) {
       const rawBody = req.rawBody;
       if (!rawBody) {
+        this.tryWebhookAudit({
+          ...auditBase,
+          outcome: "rejected_signature",
+          detail: "missing_raw_body",
+        });
         throw new UnauthorizedException("요청 본문을 읽을 수 없습니다.");
       }
-      this.verifySignature(rawBody, signature);
+      const signature = singleHeader(signatureHeader) ?? undefined;
+      this.verifySignature(rawBody, signature, auditBase);
     }
 
     this.logger.log(`GitHub 이벤트 수신: ${eventName}`);
@@ -111,13 +145,58 @@ export class WebhookController {
       await this.handlePush(payload as GitHubPushPayload);
     } else {
       this.logger.debug(`지원하지 않는 이벤트 타입: ${eventName} — 무시합니다.`);
+      this.tryWebhookAudit({
+        ...auditBase,
+        outcome: "ignored_event",
+        detail: null,
+      });
+      return { received: true };
     }
 
+    this.tryWebhookAudit({
+      ...auditBase,
+      outcome: "processed",
+      detail: null,
+    });
     return { received: true };
   }
 
-  private verifySignature(rawBody: Buffer, signature: string): void {
+  private ingestSessionId(): string {
+    return process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
+  }
+
+  private tryWebhookAudit(p: {
+    deliveryId: string | null;
+    eventName: string;
+    clientIp: string | null;
+    outcome: WebhookIngestAuditOutcome;
+    detail: string | null;
+  }): void {
+    try {
+      this.workspace.appendWebhookIngestAudit({
+        deliveryId: p.deliveryId,
+        eventName: p.eventName || "unknown",
+        clientIp: p.clientIp,
+        ingestSessionId: this.ingestSessionId(),
+        outcome: p.outcome,
+        detail: p.detail,
+      });
+    } catch (e) {
+      this.logger.warn(`webhook audit insert 실패: ${(e as Error).message}`);
+    }
+  }
+
+  private verifySignature(
+    rawBody: Buffer,
+    signature: string | undefined,
+    audit: { deliveryId: string | null; eventName: string; clientIp: string | null },
+  ): void {
     if (!signature) {
+      this.tryWebhookAudit({
+        ...audit,
+        outcome: "rejected_signature",
+        detail: "missing_signature_header",
+      });
       throw new UnauthorizedException("X-Hub-Signature-256 헤더가 없습니다.");
     }
     const expectedSig =
@@ -134,6 +213,11 @@ export class WebhookController {
       !timingSafeEqual(sigBuffer, expectedBuffer)
     ) {
       this.logger.warn("Webhook 서명 불일치 — 요청 거부");
+      this.tryWebhookAudit({
+        ...audit,
+        outcome: "rejected_signature",
+        detail: "hmac_mismatch",
+      });
       throw new UnauthorizedException("서명 검증 실패");
     }
   }
@@ -176,8 +260,7 @@ export class WebhookController {
     this.logger.log(`코드 커밋 감지: ${commitSha}`);
     const codeDeltaSummary = this.codeDeltaRunner.runForPush(beforeSha, commitSha);
     await this.publishEvent("CODE_DELTA_ANALYZED", { codeDeltaSummary });
-    const sessionId =
-      process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
+    const sessionId = this.ingestSessionId();
     this.workspace.patchProjectStateCodeDelta(sessionId, codeDeltaSummary);
   }
 
@@ -185,8 +268,7 @@ export class WebhookController {
     type: IntegrationEventType,
     payload: IntegrationEvent["payload"],
   ): Promise<void> {
-    const sessionId =
-      process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
+    const sessionId = this.ingestSessionId();
     const event: IntegrationEvent = {
       type,
       sessionId,

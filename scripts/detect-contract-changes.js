@@ -11,7 +11,7 @@
  *   PR_NUMBER   - PR 번호 (GitHub 코멘트 작성용)
  *
  * 기능:
- *   - BASE..HEAD 사이에서 specs/openapi/ 파일 변경 감지
+ *   - BASE..HEAD 사이에서 specs/openapi/ 및 specs/api-contract.md 변경 감지
  *   - ContractDiff 분석 (추가/수정/삭제 엔드포인트)
  *   - 변경 감지 시 .ai/contract-change-report.json 생성
  *   - GitHub Actions summary에 변경 내역 출력
@@ -46,13 +46,13 @@ info(`PR #${PR_NUMBER || "unknown"} 계약 변경 감지 시작`);
 info(`Base: ${BASE_SHA}`);
 info(`Head: ${HEAD_SHA}`);
 
-// ── specs/openapi/ 변경 파일 감지 ────────────────────────────────
+// ── specs/openapi/ · api-contract.md 변경 파일 감지 ──────────────
 const diffFiles = run(
-  `git diff --name-only ${BASE_SHA}..${HEAD_SHA} -- specs/openapi/`
+  `git diff --name-only ${BASE_SHA}..${HEAD_SHA} -- specs/openapi/ specs/api-contract.md`
 ).split("\n").filter(Boolean);
 
 if (diffFiles.length === 0) {
-  info("OpenAPI 계약 변경 없음. 스킵합니다.");
+  info("OpenAPI·api-contract 계약 변경 없음. 스킵합니다.");
   process.exit(0);
 }
 
@@ -72,6 +72,10 @@ const report = {
 for (const file of diffFiles) {
   const diffOutput = run(`git diff ${BASE_SHA}..${HEAD_SHA} -- "${file}"`);
   const lines = diffOutput.split("\n");
+
+  if (!file.endsWith("v1.yaml") && !file.includes("openapi")) {
+    continue;
+  }
 
   for (const line of lines) {
     // 추가된 경로
@@ -115,6 +119,13 @@ if (report.modifiedEndpoints.length > 0) {
   );
 }
 
+const apiContractTouched = diffFiles.some((f) => f.endsWith("api-contract.md"));
+if (apiContractTouched) {
+  report.impactSummary.push(
+    "specs/api-contract.md 변경 — 엔드포인트·응답 정책 문구 검토 및 OpenAPI와 정합 확인"
+  );
+}
+
 // ── GitHub Actions 요약 출력 ──────────────────────────────────────
 const summaryFile = process.env.GITHUB_STEP_SUMMARY;
 if (summaryFile) {
@@ -131,6 +142,9 @@ if (summaryFile) {
 
 ### 영향도 요약
 ${report.impactSummary.map((s) => `- ${s}`).join("\n") || "- 영향 없음"}
+
+### Gate B — PR 라벨
+**담당(B):** 엔드포인트 추가·삭제·스키마 의미 변경이 있으면 GitHub PR에 **`[contract-changed]`** 라벨을 부착하세요. (`docs/checklist.md` Gate B)
 
 > A(오케스트레이터)가 FE/QA 에이전트에게 재검토를 요청합니다.
 `;

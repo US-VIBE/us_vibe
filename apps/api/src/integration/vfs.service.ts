@@ -33,7 +33,7 @@ export interface VfsDiff {
 }
 
 // 스냅샷 메타(vfs_snapshot_index)는 SQLite(WorkspacePersistenceService) + GET /api/vfs/session/:sessionId/snapshot-index.
-// TODO: 본문 JSON(vfs-store)을 DB로 옮기고, 승인 시 실 Git 브랜치 반영 — 인터페이스는 유지한 채 내부만 교체.
+// TODO(V2 / 에픽): 본문 JSON(vfs-store)을 DB로 옮기고, 승인 시 실 Git 브랜치 반영 — 인터페이스는 유지한 채 내부만 교체. 문서: docs/integration-sandbox/d-integration-pipeline.md §6.
 @Injectable()
 export class VfsService {
   private readonly logger = new Logger(VfsService.name);

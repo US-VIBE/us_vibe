@@ -108,6 +108,13 @@ export interface InAppNotificationRow {
   createdAt: string;
 }
 
+/** S-1: GitHub 웹훅 수신 감사(append-only). JWT 없이 들어오는 트래픽 추적용 */
+export type WebhookIngestAuditOutcome =
+  | "processed"
+  | "ignored_event"
+  | "rejected_ip"
+  | "rejected_signature";
+
 function idlePr(sessionId: string): PrSnap {
   return {
     sessionId,
@@ -264,6 +271,18 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       );
       CREATE INDEX IF NOT EXISTS idx_vfs_snapshot_session
         ON vfs_snapshot_index (session_id, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS webhook_ingest_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        delivery_id TEXT,
+        event_name TEXT NOT NULL,
+        client_ip TEXT,
+        ingest_session_id TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_webhook_ingest_audit_created
+        ON webhook_ingest_audit (created_at DESC);
     `);
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
@@ -878,5 +897,32 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       createdAt: r.created_at,
       updatedAt: r.updated_at
     }));
+  }
+
+  /** S-1: 웹훅 수신 1건당 1행 append. 실패는 호출측에서 삼키고 로그만 남긴다. */
+  appendWebhookIngestAudit(input: {
+    deliveryId: string | null;
+    eventName: string;
+    clientIp: string | null;
+    ingestSessionId: string;
+    outcome: WebhookIngestAuditOutcome;
+    detail: string | null;
+  }): void {
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO webhook_ingest_audit (
+           created_at, delivery_id, event_name, client_ip, ingest_session_id, outcome, detail
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        createdAt,
+        input.deliveryId,
+        input.eventName,
+        input.clientIp,
+        input.ingestSessionId,
+        input.outcome,
+        input.detail
+      );
   }
 }
