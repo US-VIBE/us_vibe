@@ -14,7 +14,9 @@ import { WorkspacePersistenceService } from "../persistence/workspace-persistenc
 
 interface OrchestrationJob {
   sessionId: string;
-  userMessage: string;
+  type: "TURN" | "ARTIFACT_REVIEW";
+  userMessage?: string;
+  artifactId?: string;
 }
 
 const BULL_QUEUE_NAME = "integration-orchestration";
@@ -114,46 +116,73 @@ export class OrchestrationQueueService implements OnModuleInit, OnModuleDestroy 
   }
 
   private async processJob(job: Job<OrchestrationJob>): Promise<void> {
-    const { sessionId, userMessage } = job.data;
-    this.logger.log(`[BullMQ] 오케스트레이션 잡 시작: id=${job.id} session=${sessionId}`);
+    const { sessionId, type } = job.data;
+    this.logger.log(`[BullMQ] 잡 시작: id=${job.id} type=${type} session=${sessionId}`);
 
     try {
-      await this.publishEvent("ORCHESTRATION_STARTED", { sessionId, userMessage }, sessionId);
-
-      const decision = await this.orchestrator.processTurn(sessionId, userMessage);
-      
-      if (decision.supervisorResponse) {
-        await this.publishEvent(
-          "AGENT_REPLY",
-          { role: "Supervisor", phase: "orchestration", text: decision.supervisorResponse },
-          sessionId
-        );
+      if (type === "ARTIFACT_REVIEW") {
+        await this.handleArtifactReview(job.data);
+      } else {
+        await this.handleTurn(job.data);
       }
-
-      const agentsResults = [];
-      if (Array.isArray(decision.decisions)) {
-        for (const d of decision.decisions) {
-          const agentResp = await this.orchestrator.invokeAgent(d.agentRole, d.instruction, sessionId);
-          await this.publishEvent(
-            "AGENT_REPLY",
-            { role: d.agentRole, phase: "orchestration", text: agentResp },
-            sessionId
-          );
-          agentsResults.push({ role: d.agentRole, text: agentResp });
-        }
-      }
-
-      await this.publishEvent(
-        "ORCHESTRATION_COMPLETED",
-        { agents: agentsResults, supervisor: decision.supervisorResponse },
-        sessionId
-      );
-
-      this.logger.log(`[BullMQ] 오케스트레이션 잡 완료: id=${job.id}`);
+      this.logger.log(`[BullMQ] 잡 완료: id=${job.id}`);
     } catch (e) {
-      this.logger.error(`[BullMQ] 오케스트레이션 잡 실패: id=${job.id} error=${(e as Error).message}`);
+      this.logger.error(`[BullMQ] 잡 실패: id=${job.id} error=${(e as Error).message}`);
       throw e;
     }
+  }
+
+  private async handleTurn(data: OrchestrationJob): Promise<void> {
+    const { sessionId, userMessage } = data;
+    const msg = userMessage || "현재 상태를 브리핑하고 다음 단계를 제안해줘.";
+
+    await this.publishEvent("ORCHESTRATION_STARTED", { sessionId, userMessage: msg }, sessionId);
+
+    const decision = await this.orchestrator.processTurn(sessionId, msg);
+    
+    if (decision.supervisorResponse) {
+      await this.publishEvent(
+        "AGENT_REPLY",
+        { role: "Supervisor", phase: "orchestration", text: decision.supervisorResponse },
+        sessionId
+      );
+    }
+
+    const agentsResults = [];
+    if (Array.isArray(decision.decisions)) {
+      for (const d of decision.decisions) {
+        const agentResp = await this.orchestrator.invokeAgent(d.agentRole, d.instruction, sessionId);
+        await this.publishEvent(
+          "AGENT_REPLY",
+          { role: d.agentRole, phase: "orchestration", text: agentResp },
+          sessionId
+        );
+        agentsResults.push({ role: d.agentRole, text: agentResp });
+      }
+    }
+
+    await this.publishEvent(
+      "ORCHESTRATION_COMPLETED",
+      { agents: agentsResults, supervisor: decision.supervisorResponse },
+      sessionId
+    );
+  }
+
+  private async handleArtifactReview(data: OrchestrationJob): Promise<void> {
+    const { sessionId, artifactId } = data;
+    if (!artifactId) throw new Error("artifactId is required for ARTIFACT_REVIEW");
+
+    const result = await this.orchestrator.evaluateArtifact(sessionId, artifactId);
+
+    await this.publishEvent(
+      "AGENT_REPLY",
+      {
+        role: result.agentRole,
+        phase: "artifact_review",
+        text: result.feedbackMarkdown
+      },
+      sessionId
+    );
   }
 
   private async publishEvent(

@@ -119,4 +119,58 @@ Instruction: ${instruction}
 `;
     return this.gemini.generateText(system, promptRef || "유연하게 답변하십시오.");
   }
+
+  async evaluateArtifact(sessionId: string, artifactId: string): Promise<any> {
+    const artifact = this.workspace.getSessionArtifact(artifactId);
+    if (!artifact) {
+      throw new Error(`Artifact not found: ${artifactId}`);
+    }
+
+    const reviewerPolicy = this.loadPolicy("artifact-reviewer-policy.md");
+    const agentRole = artifact.kind.toLowerCase() === "erd" ? "Senior" : "QA";
+    
+    const buffer = fs.readFileSync(artifact.storedPath);
+    const system = `
+${reviewerPolicy}
+
+You are reviewing an artifact of kind: ${artifact.kind} as a ${agentRole} agent.
+Evaluate based on the rubrics and provide a professional feedback.
+`;
+    const user = `Please review the following artifact: ${artifact.originalName} (${artifact.mime})`;
+
+    const resultText = await this.gemini.generateMultimodal(system, user, {
+      buffer,
+      mimeType: artifact.mime
+    });
+
+    // Parse JSON
+    const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+    let rubric = artifact.rubric;
+    let feedbackMarkdown = resultText;
+    
+    if (jsonMatch) {
+      try {
+        const aiEvaluation = JSON.parse(jsonMatch[0]);
+        rubric = {
+          passed: aiEvaluation.passed ?? artifact.rubric.passed,
+          checks: [
+            ...artifact.rubric.checks,
+            ...(aiEvaluation.checks || [])
+          ]
+        };
+        // Remove JSON from the feedback text if it was included in markdown code blocks
+        feedbackMarkdown = resultText.replace(/```json[\s\S]*?```/, "").trim();
+        if (feedbackMarkdown === resultText) {
+          feedbackMarkdown = resultText.replace(jsonMatch[0], "").trim();
+        }
+      } catch (e) {
+        this.logger.warn("Failed to parse AI evaluation JSON");
+      }
+    }
+
+    // Update DB
+    this.workspace.updateArtifactAiReview(artifactId, rubric);
+
+    return { agentRole, feedbackMarkdown, rubric };
+  }
 }

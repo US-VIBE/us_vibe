@@ -41,6 +41,6 @@ import { OrchestrationQueueService } from "./orchestration-queue.service";
     /** SQLite append + optional Redis Pub/Sub(INTEGRATION_REDIS_PUBLISHER) */
     { provide: EVENT_PUBLISHER, useClass: EventPublisherSqlite },
   ],
-  exports: [ValidationService, VfsService, ReportService, EVENT_PUBLISHER],
+  exports: [ValidationService, VfsService, ReportService, EVENT_PUBLISHER, OrchestrationQueueService],
 })
 export class IntegrationModule {}
