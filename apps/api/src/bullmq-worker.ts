@@ -14,7 +14,7 @@ async function bootstrap(): Promise<void> {
     logger: ["error", "warn", "log"]
   });
   logger.log(
-    "BullMQ worker context ready — queue integration-pr-validate. INTEGRATION_BULLMQ=1, REDIS_URL required. Ctrl+C to stop.",
+    "BullMQ worker context ready. INTEGRATION_BULLMQ=1, REDIS_URL required. Services with 'worker' role will now process jobs. Ctrl+C to stop.",
   );
   const shutdown = async () => {
     await app.close();
