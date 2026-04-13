@@ -21,15 +21,18 @@ import {
 } from "../persistence/workspace-persistence.service";
 import { CodeDeltaRunnerService } from "./code-delta-runner.service";
 import { WebhookPrValidationService } from "./webhook-pr-validation.service";
+import { resolveIntegrationWebhookSessionId } from "../bootstrap-production-env";
 import {
   isClientIpAllowed,
   parseWebhookAllowlistRules,
   resolveWebhookClientIp,
 } from "./webhook-client-ip.util";
+import { Throttle } from "@nestjs/throttler";
 
 interface GitHubPrPayload {
   action: string;
   number: number;
+  repository?: { full_name?: string };
   pull_request: {
     head: { sha: string; ref: string };
     user: { login: string };
@@ -41,6 +44,7 @@ interface GitHubPushPayload {
   ref: string;
   after: string;
   before: string;
+  repository?: { full_name?: string };
 }
 
 function envFlagTrue(value: string | undefined): boolean {
@@ -79,6 +83,7 @@ export class WebhookController {
 
   @Post("github")
   @HttpCode(200)
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
   async handleGitHubWebhook(
     @Req() req: RawBodyRequest<Request>,
     @Headers("x-hub-signature-256") signatureHeader: string | string[] | undefined,
@@ -97,6 +102,7 @@ export class WebhookController {
         ...auditBase,
         outcome: "rejected_signature",
         detail: "require_sig_without_secret",
+        ingestSessionId: resolveIntegrationWebhookSessionId(),
       });
       throw new UnauthorizedException(
         "GITHUB_WEBHOOK_REQUIRE_SIGNATURE 가 켜져 있으면 GITHUB_WEBHOOK_SECRET 이 필요합니다.",
@@ -116,6 +122,7 @@ export class WebhookController {
           ...auditBase,
           outcome: "rejected_ip",
           detail: ip ?? "no_resolved_ip",
+          ingestSessionId: resolveIntegrationWebhookSessionId(),
         });
         throw new ForbiddenException("허용되지 않은 클라이언트입니다.");
       }
@@ -129,6 +136,7 @@ export class WebhookController {
           ...auditBase,
           outcome: "rejected_signature",
           detail: "missing_raw_body",
+          ingestSessionId: resolveIntegrationWebhookSessionId(),
         });
         throw new UnauthorizedException("요청 본문을 읽을 수 없습니다.");
       }
@@ -138,17 +146,20 @@ export class WebhookController {
 
     this.logger.log(`GitHub 이벤트 수신: ${eventName}`);
 
+    const resolution = this.resolveIngestSessionFromPayload(payload);
+
     // 이벤트 타입에 따라 라우팅
     if (eventName === "pull_request") {
-      await this.handlePullRequest(payload as GitHubPrPayload);
+      await this.handlePullRequest(payload as GitHubPrPayload, resolution.sessionId);
     } else if (eventName === "push") {
-      await this.handlePush(payload as GitHubPushPayload);
+      await this.handlePush(payload as GitHubPushPayload, resolution.sessionId);
     } else {
       this.logger.debug(`지원하지 않는 이벤트 타입: ${eventName} — 무시합니다.`);
       this.tryWebhookAudit({
         ...auditBase,
         outcome: "ignored_event",
-        detail: null,
+        detail: resolution.auditDetail,
+        ingestSessionId: resolution.sessionId,
       });
       return { received: true };
     }
@@ -156,13 +167,49 @@ export class WebhookController {
     this.tryWebhookAudit({
       ...auditBase,
       outcome: "processed",
-      detail: null,
+      detail: resolution.auditDetail,
+      ingestSessionId: resolution.sessionId,
     });
     return { received: true };
   }
 
-  private ingestSessionId(): string {
-    return process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
+  /** `repository.full_name`에 등록된 라우트가 있으면 해당 session, 없으면 환경변수 기본 */
+  private extractRepoFullName(payload: unknown): string | null {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+    const fn = (payload as { repository?: { full_name?: unknown } }).repository?.full_name;
+    return typeof fn === "string" && fn.trim() ? fn.trim() : null;
+  }
+
+  /**
+   * SQLite `github_repo_webhook_route` 매칭 시 repo_route, 아니면 환경변수 세션.
+   * 감사 로그 `detail`에 `session_resolve:*` 힌트를 넣는다.
+   */
+  private resolveIngestSessionFromPayload(payload: unknown): {
+    sessionId: string;
+    auditDetail: string;
+  } {
+    const envSid = resolveIntegrationWebhookSessionId();
+    const repo = this.extractRepoFullName(payload);
+    if (!repo) {
+      return {
+        sessionId: envSid,
+        auditDetail: "session_resolve:env_fallback_no_repo_in_payload",
+      };
+    }
+    const key = this.workspace.normalizeGithubRepoFullName(repo);
+    const row = this.workspace.getGithubRepoWebhookRoute(repo);
+    if (row) {
+      return {
+        sessionId: row.sessionId,
+        auditDetail: `session_resolve:repo_route:${key}`,
+      };
+    }
+    return {
+      sessionId: envSid,
+      auditDetail: `session_resolve:env_fallback_unregistered_repo:${key}`,
+    };
   }
 
   private tryWebhookAudit(p: {
@@ -171,13 +218,14 @@ export class WebhookController {
     clientIp: string | null;
     outcome: WebhookIngestAuditOutcome;
     detail: string | null;
+    ingestSessionId?: string;
   }): void {
     try {
       this.workspace.appendWebhookIngestAudit({
         deliveryId: p.deliveryId,
         eventName: p.eventName || "unknown",
         clientIp: p.clientIp,
-        ingestSessionId: this.ingestSessionId(),
+        ingestSessionId: p.ingestSessionId ?? resolveIntegrationWebhookSessionId(),
         outcome: p.outcome,
         detail: p.detail,
       });
@@ -196,6 +244,7 @@ export class WebhookController {
         ...audit,
         outcome: "rejected_signature",
         detail: "missing_signature_header",
+        ingestSessionId: resolveIntegrationWebhookSessionId(),
       });
       throw new UnauthorizedException("X-Hub-Signature-256 헤더가 없습니다.");
     }
@@ -217,12 +266,13 @@ export class WebhookController {
         ...audit,
         outcome: "rejected_signature",
         detail: "hmac_mismatch",
+        ingestSessionId: resolveIntegrationWebhookSessionId(),
       });
       throw new UnauthorizedException("서명 검증 실패");
     }
   }
 
-  private async handlePullRequest(payload: GitHubPrPayload): Promise<void> {
+  private async handlePullRequest(payload: GitHubPrPayload, sessionId: string): Promise<void> {
     const { action, number: prNumber, pull_request } = payload;
     const commitSha = pull_request.head.sha;
     const branch = pull_request.head.ref;
@@ -237,7 +287,7 @@ export class WebhookController {
     } else if (action === "closed" && Boolean(pull_request.merged)) {
       this.workspace.resetPrValidationStreak(prNumber);
       eventType = "PR_MERGED";
-      await this.publishEvent(eventType, { prNumber, branch, author });
+      await this.publishEvent(eventType, { prNumber, branch, author }, sessionId);
       return;
     } else {
       this.logger.debug(`PR 액션 무시: ${action}`);
@@ -249,26 +299,25 @@ export class WebhookController {
     }
 
     this.logger.log(`정적 검증 시작: PR #${prNumber} (${eventType})`);
-    await this.publishEvent(eventType, { prNumber, branch, author });
+    await this.publishEvent(eventType, { prNumber, branch, author }, sessionId);
 
-    await this.prValidation.scheduleOrRunValidation(prNumber, commitSha);
+    await this.prValidation.scheduleOrRunValidation(prNumber, commitSha, sessionId);
   }
 
-  private async handlePush(payload: GitHubPushPayload): Promise<void> {
+  private async handlePush(payload: GitHubPushPayload, sessionId: string): Promise<void> {
     const commitSha = payload.after;
     const beforeSha = payload.before ?? "";
     this.logger.log(`코드 커밋 감지: ${commitSha}`);
     const codeDeltaSummary = this.codeDeltaRunner.runForPush(beforeSha, commitSha);
-    await this.publishEvent("CODE_DELTA_ANALYZED", { codeDeltaSummary });
-    const sessionId = this.ingestSessionId();
+    await this.publishEvent("CODE_DELTA_ANALYZED", { codeDeltaSummary }, sessionId);
     this.workspace.patchProjectStateCodeDelta(sessionId, codeDeltaSummary);
   }
 
   private async publishEvent(
     type: IntegrationEventType,
     payload: IntegrationEvent["payload"],
+    sessionId: string,
   ): Promise<void> {
-    const sessionId = this.ingestSessionId();
     const event: IntegrationEvent = {
       type,
       sessionId,

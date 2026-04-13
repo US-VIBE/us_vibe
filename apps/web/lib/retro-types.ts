@@ -11,6 +11,21 @@ export interface RetroKpi {
   communicationScore: number;
 }
 
+export interface RetroKpiCitation {
+  eventType: string;
+  timestamp: string;
+  note: string;
+}
+
+export interface RetroKpiEvidenceBlock {
+  key: "roleBalance" | "rework" | "reviewReflection" | "communication";
+  labelKo: string;
+  score: number;
+  unit: string;
+  summary: string;
+  citations: RetroKpiCitation[];
+}
+
 export interface RetroReport {
   id: string;
   sessionId: string;
@@ -19,4 +34,5 @@ export interface RetroReport {
   nextActions: [string, string, string];
   /** API 생성 리포트에만 채워질 수 있음 */
   kpiBasis?: string;
+  kpiEvidence?: RetroKpiEvidenceBlock[];
 }

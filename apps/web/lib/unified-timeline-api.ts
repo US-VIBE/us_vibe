@@ -16,6 +16,8 @@ export type UnifiedTimelineData = {
   postgresTimeline: PostgresTimelineEvent[];
   postgresNote: string | null;
   bridgeHint: string;
+  /** API가 sortOrder·sources·types 반영해 병합한 목록 (없으면 클라이언트 병합) */
+  mergedTimeline?: MergedTimelineRow[];
 };
 
 /** F-2: SQLite·Postgres를 한 목록으로 시간순(최신 우선) 병합 */
@@ -70,13 +72,29 @@ export function buildMergedTimelineRows(data: UnifiedTimelineData): MergedTimeli
   return rows;
 }
 
+export type UnifiedTimelineQuery = {
+  sortOrder?: "asc" | "desc";
+  sources?: "both" | "sqlite" | "postgres";
+  types?: string;
+};
+
 export async function fetchUnifiedTimeline(
   apiBase: string,
   sessionId: string,
-  limit: number
+  limit: number,
+  query?: UnifiedTimelineQuery
 ): Promise<UnifiedTimelineData> {
   const base = apiBase.replace(/\/$/, "");
   const q = new URLSearchParams({ sessionId, limit: String(limit) });
+  if (query?.sortOrder) {
+    q.set("sortOrder", query.sortOrder);
+  }
+  if (query?.sources && query.sources !== "both") {
+    q.set("sources", query.sources);
+  }
+  if (query?.types?.trim()) {
+    q.set("types", query.types.trim());
+  }
   const res = await apiFetch(`${base}/api/integration/unified-timeline?${q}`);
   if (!res.ok) {
     throw new Error(`unified-timeline ${res.status}`);
@@ -86,4 +104,12 @@ export async function fetchUnifiedTimeline(
     throw new Error("unified-timeline invalid body");
   }
   return body.data;
+}
+
+/** 서버 병합 배열이 있으면 사용, 없으면 로컬 병합(하위 호환) */
+export function getMergedRowsForDisplay(data: UnifiedTimelineData): MergedTimelineRow[] {
+  if (Array.isArray(data.mergedTimeline)) {
+    return data.mergedTimeline;
+  }
+  return buildMergedTimelineRows(data);
 }

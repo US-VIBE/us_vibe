@@ -54,9 +54,12 @@
 | `DATABASE_URL` | PostgreSQL 연결 문자열 (사용자·시뮬 세션·협업 이벤트 등) |
 | `JWT_SECRET` | JWT 서명 (**운영 필수**) |
 | `REDIS_URL` | 로그아웃 시 `jti` 폐기(denylist). 없으면 Redis 미사용 |
-| `GEMINI_API_KEY` | API 쪽 Gemini (`/sessions/.../run-scenario` 등). **서버만** |
+| `GEMINI_API_KEY` | API 쪽 Gemini (`/sessions/.../run-scenario` 등 시나리오 AI). **서버만** |
 | `GEMINI_MODEL` | 선택, 기본은 코드 기본값 따름 |
 | `GEMINI_FALLBACK_MODEL` | 선택 |
+| `OPENAI_API_KEY` | (선택) API에서 워크스페이스 산출물 **AI 비전 평가** `POST .../artifacts/:id/evaluate`. Chat Completions + `image_url` |
+| `OPENAI_BASE_URL` / `OPENAI_MODEL` | (선택) 평가용 OpenAI 호환 엔드포인트·모델. 기본 `https://api.openai.com/v1`, `gpt-4o-mini` |
+| `OPENAI_ORGANIZATION` / `OPENAI_PROJECT_ID` | (선택) OpenAI 대시보드 조직·프로젝트 헤더 ([웹 채팅](../apps/web/app/api/chat/route.ts)과 동일) |
 | `TYPEORM_LOGGING` | `1`이면 SQL 로그 |
 | `US_VIBE_REPO_ROOT` | 모노레포 루트 오버라이드(일부 스크립트) |
 
@@ -73,6 +76,8 @@
 ### `apps/api` 전용 (SQLite 워크스페이스 영속)
 
 [`apps/api/.env.example`](../apps/api/.env.example) 참고.
+
+**추가 엔드포인트·멀티테넌시·타임라인 필터·Redis 재발행 큐**는 [`docs/integration-sandbox/d-integration-api-extras.md`](integration-sandbox/d-integration-api-extras.md)에 정리했다.
 
 | 변수명 | 용도 |
 |--------|------|
@@ -91,7 +96,19 @@
 | `INTEGRATION_REDIS_CHANNEL` | (선택) Pub/Sub 채널명. 기본 `integration:events` |
 | `INTEGRATION_REDIS_PUBLISH_MAX_ATTEMPTS` | (선택) Pub/Sub `publish` 실패 시 **P-1** 동일 프로세스 재시도 횟수. 기본 `3` |
 | `INTEGRATION_REDIS_PUBLISH_BACKOFF_MS` | (선택) P-1 재시도 **초기 대기(ms)**. 지수 백오프(×2) 적용. 기본 `100` |
+| `INTEGRATION_REDIS_REPLAY_QUEUE` | (선택) `1`/`true`이면 Pub/Sub 동기 재시도까지 실패한 뒤 BullMQ 큐 **`integration-redis-replay`**에 적재. **`INTEGRATION_BULLMQ=1` + `REDIS_URL`** 필요. 별도 워커(`npm run start:bullmq-worker`)에서 `integration-pr-validate`와 동일 프로세스로 Worker 소비 |
 | `US_VIBE_REPO_ROOT` | (선택) 모노레포 루트 — push 웹훅에서 `code-delta-analyzer.js` 실행 시 `package.json` name `us-vibe` 탐색 실패 시 지정 |
+| `OPENAI_API_KEY` | 산출물 AI 평가(`.../artifacts/:id/evaluate`) — API 프로세스 환경에 설정(루트 `.env` 공유 가능) |
+| `OPENAI_BASE_URL` / `OPENAI_MODEL` | (선택) 평가 호출. 기본 `https://api.openai.com/v1`, `gpt-4o-mini` |
+| `OPENAI_ORGANIZATION` / `OPENAI_PROJECT_ID` | (선택) OpenAI API 헤더 |
+
+### 워크스페이스 산출물 (JWT, SQLite `session_artifact`)
+
+| 메서드·경로 | 설명 |
+|-------------|------|
+| `GET /api/sessions/:sessionId/artifacts` | 제출 목록 (`evaluation_json` 포함) |
+| `POST /api/sessions/:sessionId/artifacts` | `multipart/form-data`: 필드 `file`, 선택 `kind` (`erd`, `github_snapshot`, `code_snapshot` 등 소문자·하이픈·언더스코어, 최대 64자). PNG/JPEG/WebP/PDF, 5MB |
+| `POST /api/sessions/:sessionId/artifacts/:artifactId/evaluate` | JSON `{ "force"?: boolean }`. 이미지만 **OpenAI** 비전(Chat Completions) 평가 후 `evaluation_json` 갱신; PDF·비이미지는 `skipped`. 완료된 평가는 `force: true`로 재실행. **`OPENAI_API_KEY` 없으면 503** |
 
 ### 3.1 `INTEGRATION_WEBHOOK_SESSION_ID` 운영 정책 (단일 기준)
 

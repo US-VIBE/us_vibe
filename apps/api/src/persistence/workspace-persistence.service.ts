@@ -1,4 +1,11 @@
-import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit
+} from "@nestjs/common";
 import Database from "better-sqlite3";
 import * as crypto from "node:crypto";
 import * as fs from "fs";
@@ -42,6 +49,22 @@ export interface RetroKpi {
   communicationScore: number;
 }
 
+/** 회고 KPI 근거 — 타임라인 인용용 */
+export interface RetroKpiCitation {
+  eventType: string;
+  timestamp: string;
+  note: string;
+}
+
+export interface RetroKpiEvidenceBlock {
+  key: "roleBalance" | "rework" | "reviewReflection" | "communication";
+  labelKo: string;
+  score: number;
+  unit: string;
+  summary: string;
+  citations: RetroKpiCitation[];
+}
+
 export interface RetroReport {
   id: string;
   sessionId: string;
@@ -50,6 +73,7 @@ export interface RetroReport {
   nextActions: [string, string, string];
   /** F-6: 이벤트 로그 기반 KPI 산출 근거 한 줄 */
   kpiBasis?: string;
+  kpiEvidence?: RetroKpiEvidenceBlock[];
 }
 
 /** SQLite `session_profile` — Sprint1 역할·Prompt-to-Spec 게이트 */
@@ -87,6 +111,27 @@ export interface PrValidationStatusEnvelope {
   validation: PrValidationCacheRow | null;
 }
 
+/** AI 스냅샷 평가 결과 — `session_artifact.evaluation_json` */
+export type SessionArtifactEvaluation =
+  | {
+      status: "completed";
+      model: string;
+      promptVersion: string;
+      text: string;
+      evaluatedAt: string;
+    }
+  | {
+      status: "failed";
+      model?: string;
+      error: string;
+      evaluatedAt: string;
+    }
+  | {
+      status: "skipped";
+      reason: string;
+      evaluatedAt: string;
+    };
+
 export interface SessionArtifactRecord {
   id: string;
   sessionId: string;
@@ -97,6 +142,7 @@ export interface SessionArtifactRecord {
   storedPath: string;
   rubric: { passed: boolean; checks: { id: string; pass: boolean; note: string }[] };
   createdAt: string;
+  evaluation: SessionArtifactEvaluation | null;
 }
 
 export interface InAppNotificationRow {
@@ -106,6 +152,14 @@ export interface InAppNotificationRow {
   body: string;
   kind: string;
   createdAt: string;
+}
+
+/** P1: GitHub `owner/repo` → 시뮬/워크스페이스 sessionId (사용자별 격리) */
+export interface GithubRepoWebhookRouteRow {
+  repoFullName: string;
+  sessionId: string;
+  ownerUserId: string;
+  updatedAt: string;
 }
 
 /** S-1: GitHub 웹훅 수신 감사(append-only). JWT 없이 들어오는 트래픽 추적용 */
@@ -246,7 +300,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         size_bytes INTEGER NOT NULL,
         stored_path TEXT NOT NULL,
         rubric_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        evaluation_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_session_artifact_session
         ON session_artifact (session_id, created_at DESC);
@@ -283,10 +338,19 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       );
       CREATE INDEX IF NOT EXISTS idx_webhook_ingest_audit_created
         ON webhook_ingest_audit (created_at DESC);
+      CREATE TABLE IF NOT EXISTS github_repo_webhook_route (
+        repo_full_name TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        owner_user_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_github_repo_route_owner
+        ON github_repo_webhook_route (owner_user_id);
     `);
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
     this.ensureColumn("workspace_session", "owner_user_id", "TEXT");
+    this.ensureColumn("session_artifact", "evaluation_json", "TEXT");
     this.logger.log(`SQLite workspace state: ${dbPath}`);
   }
 
@@ -679,8 +743,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
       )
       .run(
         id,
@@ -702,7 +766,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       sizeBytes: input.buffer.length,
       storedPath,
       rubric,
-      createdAt
+      createdAt,
+      evaluation: null
     };
   }
 
@@ -757,10 +822,87 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return { passed: checks.every((c) => c.pass), checks };
   }
 
+  private parseEvaluationJson(raw: string | null): SessionArtifactEvaluation | null {
+    if (raw == null || raw.trim() === "") {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as SessionArtifactEvaluation;
+    } catch {
+      return null;
+    }
+  }
+
+  private rowToSessionArtifact(r: {
+    id: string;
+    session_id: string;
+    kind: string;
+    original_name: string;
+    mime: string;
+    size_bytes: number;
+    stored_path: string;
+    rubric_json: string;
+    created_at: string;
+    evaluation_json: string | null;
+  }): SessionArtifactRecord {
+    return {
+      id: r.id,
+      sessionId: r.session_id,
+      kind: r.kind,
+      originalName: r.original_name,
+      mime: r.mime,
+      sizeBytes: r.size_bytes,
+      storedPath: r.stored_path,
+      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
+      createdAt: r.created_at,
+      evaluation: this.parseEvaluationJson(r.evaluation_json)
+    };
+  }
+
+  getSessionArtifact(sessionId: string, artifactId: string): SessionArtifactRecord | null {
+    const r = this.db
+      .prepare(
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json
+         FROM session_artifact WHERE session_id = ? AND id = ?`
+      )
+      .get(sessionId, artifactId) as
+      | {
+          id: string;
+          session_id: string;
+          kind: string;
+          original_name: string;
+          mime: string;
+          size_bytes: number;
+          stored_path: string;
+          rubric_json: string;
+          created_at: string;
+          evaluation_json: string | null;
+        }
+      | undefined;
+    return r ? this.rowToSessionArtifact(r) : null;
+  }
+
+  setSessionArtifactEvaluation(
+    sessionId: string,
+    artifactId: string,
+    evaluation: SessionArtifactEvaluation
+  ): SessionArtifactRecord | null {
+    const info = this.db
+      .prepare("SELECT session_id FROM session_artifact WHERE id = ?")
+      .get(artifactId) as { session_id: string } | undefined;
+    if (!info || info.session_id !== sessionId) {
+      return null;
+    }
+    this.db
+      .prepare("UPDATE session_artifact SET evaluation_json = ? WHERE id = ? AND session_id = ?")
+      .run(JSON.stringify(evaluation), artifactId, sessionId);
+    return this.getSessionArtifact(sessionId, artifactId);
+  }
+
   listSessionArtifacts(sessionId: string): SessionArtifactRecord[] {
     const rows = this.db
       .prepare(
-        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json
          FROM session_artifact WHERE session_id = ? ORDER BY created_at DESC`
       )
       .all(sessionId) as Array<{
@@ -773,18 +915,9 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       stored_path: string;
       rubric_json: string;
       created_at: string;
+      evaluation_json: string | null;
     }>;
-    return rows.map((r) => ({
-      id: r.id,
-      sessionId: r.session_id,
-      kind: r.kind,
-      originalName: r.original_name,
-      mime: r.mime,
-      sizeBytes: r.size_bytes,
-      storedPath: r.stored_path,
-      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
-      createdAt: r.created_at
-    }));
+    return rows.map((r) => this.rowToSessionArtifact(r));
   }
 
   appendInAppNotification(input: {
@@ -929,6 +1062,87 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       createdAt: r.created_at,
       updatedAt: r.updated_at
     }));
+  }
+
+  normalizeGithubRepoFullName(repoFullName: string): string {
+    return repoFullName.trim().toLowerCase();
+  }
+
+  getGithubRepoWebhookRoute(repoFullName: string): { sessionId: string; ownerUserId: string } | null {
+    const key = this.normalizeGithubRepoFullName(repoFullName);
+    if (!key) {
+      return null;
+    }
+    const row = this.db
+      .prepare(
+        `SELECT session_id, owner_user_id FROM github_repo_webhook_route WHERE repo_full_name = ?`
+      )
+      .get(key) as { session_id: string; owner_user_id: string } | undefined;
+    if (!row) {
+      return null;
+    }
+    return { sessionId: row.session_id, ownerUserId: row.owner_user_id };
+  }
+
+  listGithubRepoWebhookRoutesForUser(userId: string): GithubRepoWebhookRouteRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT repo_full_name, session_id, owner_user_id, updated_at
+         FROM github_repo_webhook_route WHERE owner_user_id = ? ORDER BY updated_at DESC`
+      )
+      .all(userId) as Array<{
+      repo_full_name: string;
+      session_id: string;
+      owner_user_id: string;
+      updated_at: string;
+    }>;
+    return rows.map((r) => ({
+      repoFullName: r.repo_full_name,
+      sessionId: r.session_id,
+      ownerUserId: r.owner_user_id,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  upsertGithubRepoWebhookRoute(repoFullName: string, sessionId: string, userId: string): void {
+    const key = this.normalizeGithubRepoFullName(repoFullName);
+    if (!key) {
+      throw new BadRequestException("repoFullName이 비어 있습니다.");
+    }
+    const existing = this.getGithubRepoWebhookRoute(key);
+    if (existing && existing.ownerUserId !== userId) {
+      throw new ForbiddenException("다른 사용자가 등록한 저장소 라우트입니다.");
+    }
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO github_repo_webhook_route (repo_full_name, session_id, owner_user_id, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(repo_full_name) DO UPDATE SET
+           session_id = excluded.session_id,
+           owner_user_id = excluded.owner_user_id,
+           updated_at = excluded.updated_at`
+      )
+      .run(key, sessionId, userId, now);
+  }
+
+  /** 등록된 라우트 삭제. 행이 없으면 false. */
+  deleteGithubRepoWebhookRoute(repoFullName: string, userId: string): boolean {
+    const key = this.normalizeGithubRepoFullName(repoFullName);
+    if (!key) {
+      throw new BadRequestException("repoFullName이 비어 있습니다.");
+    }
+    const existing = this.getGithubRepoWebhookRoute(key);
+    if (!existing) {
+      return false;
+    }
+    if (existing.ownerUserId !== userId) {
+      throw new ForbiddenException("다른 사용자가 등록한 저장소 라우트입니다.");
+    }
+    const r = this.db
+      .prepare(`DELETE FROM github_repo_webhook_route WHERE repo_full_name = ?`)
+      .run(key);
+    return (r.changes ?? 0) > 0;
   }
 
   /** S-1: 웹훅 수신 1건당 1행 append. 실패는 호출측에서 삼키고 로그만 남긴다. */

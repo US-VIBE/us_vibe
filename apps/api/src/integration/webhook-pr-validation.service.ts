@@ -17,6 +17,7 @@ import { WorkspacePersistenceService } from "../persistence/workspace-persistenc
 interface PrValidationJob {
   prNumber: number;
   commitSha: string;
+  sessionId: string;
 }
 
 /** BullMQ 큐 메트릭 (P-1 관측성) */
@@ -89,12 +90,12 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
 
     const runJob = async (job: Job<PrValidationJob>) => {
       const startTime = Date.now();
-      const { prNumber, commitSha } = job.data;
+      const { prNumber, commitSha, sessionId } = job.data;
       this.logger.log(
         `[BullMQ] 잡 시작: id=${job.id} PR #${prNumber} commit=${commitSha.slice(0, 7)} attempt=${job.attemptsMade + 1}/${job.opts.attempts ?? 1}`,
       );
       try {
-        await this.runQueuedValidation(prNumber, commitSha);
+        await this.runQueuedValidation(prNumber, commitSha, sessionId);
         this.lastJobDurationMs = Date.now() - startTime;
         this.jobsCompleted++;
         this.logger.log(
@@ -285,20 +286,28 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     );
   }
 
-  async scheduleOrRunValidation(prNumber: number, commitSha: string): Promise<void> {
+  async scheduleOrRunValidation(
+    prNumber: number,
+    commitSha: string,
+    sessionId: string
+  ): Promise<void> {
     const streak = this.workspace.getValidationFailureStreak(prNumber);
     if (streak >= 5) {
       this.logger.warn(`PR #${prNumber} 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`);
-      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
-        prNumber,
-        consecutiveFailures: streak,
-      });
+      await this.publishEvent(
+        "VALIDATION_LOOP_DETECTED",
+        {
+          prNumber,
+          consecutiveFailures: streak,
+        },
+        sessionId
+      );
       return;
     }
 
     if (envFlagTrue(process.env.WEBHOOK_VALIDATION_ASYNC)) {
       this.logger.log(`PR #${prNumber} 비동기 큐로 즉시 이관 (WEBHOOK_VALIDATION_ASYNC=1)`);
-      this.enqueue({ prNumber, commitSha });
+      this.enqueue({ prNumber, commitSha, sessionId });
       return;
     }
 
@@ -314,11 +323,11 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
           t.unref?.();
         }),
       ]);
-      await this.finalizeValidation(prNumber, validationResult);
+      await this.finalizeValidation(prNumber, validationResult, sessionId);
     } catch (e) {
       if ((e as Error).message === "WEBHOOK_VALIDATION_TIMEOUT") {
         this.logger.warn(`PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 큐로 이관`);
-        this.enqueue({ prNumber, commitSha });
+        this.enqueue({ prNumber, commitSha, sessionId });
         return;
       }
       throw e;
@@ -340,7 +349,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
 
   private async enqueueBull(job: PrValidationJob): Promise<void> {
     if (!this.bullQueue) return;
-    const jobId = `pr-validate:${job.prNumber}:${job.commitSha}`;
+    const jobId = `pr-validate:${job.sessionId}:${job.prNumber}:${job.commitSha}`;
     await this.bullQueue.add("pr-validate", job, {
       jobId,
       removeOnComplete: { age: 3600 },
@@ -357,48 +366,65 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     try {
       while (this.memoryQueue.length > 0) {
         const job = this.memoryQueue.shift()!;
-        await this.runQueuedValidation(job.prNumber, job.commitSha);
+        await this.runQueuedValidation(job.prNumber, job.commitSha, job.sessionId);
       }
     } finally {
       this.pumping = false;
     }
   }
 
-  private async runQueuedValidation(prNumber: number, commitSha: string): Promise<void> {
+  private async runQueuedValidation(
+    prNumber: number,
+    commitSha: string,
+    sessionId: string
+  ): Promise<void> {
     const streak = this.workspace.getValidationFailureStreak(prNumber);
     if (streak >= 5) {
       this.logger.warn(`PR #${prNumber} (큐) 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`);
-      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
-        prNumber,
-        consecutiveFailures: streak,
-      });
+      await this.publishEvent(
+        "VALIDATION_LOOP_DETECTED",
+        {
+          prNumber,
+          consecutiveFailures: streak,
+        },
+        sessionId
+      );
       return;
     }
     const validationResult = await this.validationService.runAll(prNumber, commitSha);
-    await this.finalizeValidation(prNumber, validationResult);
+    await this.finalizeValidation(prNumber, validationResult, sessionId);
   }
 
   private async finalizeValidation(
     prNumber: number,
     validationResult: Awaited<ReturnType<ValidationService["runAll"]>>,
+    sessionId: string
   ): Promise<void> {
     this.workspace.savePrValidationResult(prNumber, validationResult);
     const outcome = this.workspace.recordValidationOutcome(prNumber, validationResult.passed);
     if (outcome.loopJustDetected) {
-      await this.publishEvent("VALIDATION_LOOP_DETECTED", {
-        prNumber,
-        consecutiveFailures: outcome.streak,
-      });
+      await this.publishEvent(
+        "VALIDATION_LOOP_DETECTED",
+        {
+          prNumber,
+          consecutiveFailures: outcome.streak,
+        },
+        sessionId
+      );
     }
 
     if (validationResult.passed) {
-      await this.publishEvent("VALIDATION_PASSED", { validationResult });
+      await this.publishEvent("VALIDATION_PASSED", { validationResult }, sessionId);
     } else {
       const fixGuide = LOGIN_MVP_PACK.prValidationFixGuide;
-      await this.publishEvent("VALIDATION_FAILED", {
-        validationResult,
-        fixRequestGuide: fixGuide,
-      });
+      await this.publishEvent(
+        "VALIDATION_FAILED",
+        {
+          validationResult,
+          fixRequestGuide: fixGuide,
+        },
+        sessionId
+      );
 
       const repoOwner = process.env.GITHUB_REPO_OWNER ?? "";
       const repoName = process.env.GITHUB_REPO_NAME ?? "";
@@ -415,8 +441,8 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
   private async publishEvent(
     type: IntegrationEventType,
     payload: IntegrationEvent["payload"],
+    sessionId: string
   ): Promise<void> {
-    const sessionId = process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
     const event: IntegrationEvent = {
       type,
       sessionId,

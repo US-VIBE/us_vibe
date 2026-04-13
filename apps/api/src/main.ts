@@ -6,6 +6,12 @@ config({ path: path.resolve(__dirname, "../../../.env") });
 import "reflect-metadata";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface";
+import helmet from "helmet";
+import {
+  assertProductionCorsOrigins,
+  validateProductionEnvironment
+} from "./bootstrap-production-env";
 import { AppModule } from "./app.module";
 import { ContractHttpExceptionFilter } from "./http-exception.filter";
 
@@ -29,9 +35,21 @@ function resolveListenPort(): number {
   );
 }
 
+function buildCorsOptions(): CorsOptions {
+  if (process.env.NODE_ENV !== "production") {
+    return { origin: true, credentials: true };
+  }
+  const origins = assertProductionCorsOrigins();
+  return { origin: origins, credentials: true };
+}
+
 async function bootstrap(): Promise<void> {
   const logger = new Logger("Bootstrap");
+  validateProductionEnvironment();
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  if (process.env.NODE_ENV === "production") {
+    app.use(helmet());
+  }
   const trustProxy =
     envFlagTrue(process.env.WEBHOOK_TRUST_PROXY) ||
     Boolean(process.env.RAILWAY_ENVIRONMENT?.trim());
@@ -42,10 +60,7 @@ async function bootstrap(): Promise<void> {
     }
   }
   app.useGlobalFilters(new ContractHttpExceptionFilter());
-  app.enableCors({
-    origin: true,
-    credentials: true
-  });
+  app.enableCors(buildCorsOptions());
   const listenPort = resolveListenPort();
   await app.listen(listenPort, "0.0.0.0");
   logger.log(`Listening on 0.0.0.0:${listenPort} (NODE_ENV=${process.env.NODE_ENV ?? "undefined"})`);

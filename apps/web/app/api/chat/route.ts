@@ -239,8 +239,9 @@ export async function POST(request: Request) {
   const openaiBase = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   const openaiModel = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
 
-  /** `openai` | `gemini` | `auto`(기본: Gemini 먼저, 쿼터 실패 시 OpenAI) */
-  const chatProvider = (process.env.CHAT_PROVIDER ?? "auto").trim().toLowerCase();
+
+  /** `openai`(기본) | `gemini` | `auto`(Gemini 먼저, 쿼터/429류 실패 시 OpenAI) */
+  const chatProvider = (process.env.CHAT_PROVIDER ?? "openai").trim().toLowerCase();
 
   let body: Body;
   try {
@@ -273,7 +274,7 @@ export async function POST(request: Request) {
         ok: false,
         error: "NO_API_KEY",
         message:
-          "GEMINI_API_KEY 또는 OPENAI_API_KEY를 apps/web/.env.local에 설정하세요. OpenAI만 쓰려면 CHAT_PROVIDER=openai 입니다."
+          "기본은 OpenAI입니다. apps/web/.env.local에 OPENAI_API_KEY를 설정하세요. Gemini를 쓰려면 CHAT_PROVIDER=auto 또는 gemini 와 GEMINI_API_KEY를 넣으세요."
       },
       { status: 503 }
     );

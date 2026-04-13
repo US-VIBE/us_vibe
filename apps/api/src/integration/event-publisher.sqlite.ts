@@ -3,6 +3,7 @@ import type { IntegrationEvent } from "../../../../specs/data-model/types";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
 import type { IEventPublisher } from "./event-publisher.interface";
 import { IntegrationRedisPubSubService } from "./integration-redis-pubsub.service";
+import { IntegrationRedisReplayQueueService } from "./integration-redis-replay-queue.service";
 import { IntegrationTimelineBridgeService } from "./integration-timeline-bridge.service";
 
 /**
@@ -16,7 +17,8 @@ export class EventPublisherSqlite implements IEventPublisher {
   constructor(
     private readonly workspace: WorkspacePersistenceService,
     private readonly timelineBridge: IntegrationTimelineBridgeService,
-    private readonly redisPubSub: IntegrationRedisPubSubService
+    private readonly redisPubSub: IntegrationRedisPubSubService,
+    private readonly redisReplayQueue: IntegrationRedisReplayQueueService
   ) {}
 
   async publish(event: IntegrationEvent): Promise<void> {
@@ -25,6 +27,17 @@ export class EventPublisherSqlite implements IEventPublisher {
       `[publish] ${r.type} session=${r.sessionId} v=${r.stateVersion} by=${r.triggeredBy}`
     );
     await this.timelineBridge.mirrorIfApplicable(r);
-    await this.redisPubSub.publishResolved(r);
+    const published = await this.redisPubSub.publishResolved(r);
+    if (!published && this.redisReplayQueue.isReplayEnqueueEnabled()) {
+      const channel =
+        process.env.INTEGRATION_REDIS_CHANNEL?.trim() || "integration:events";
+      try {
+        await this.redisReplayQueue.enqueueReplay(channel, JSON.stringify(r));
+      } catch (e) {
+        this.logger.warn(
+          `[publish] Redis replay enqueue 실패: ${(e as Error).message}`,
+        );
+      }
+    }
   }
 }

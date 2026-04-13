@@ -45,11 +45,12 @@ import {
 } from "@/lib/contract-gate-service";
 import type { ValidationResult } from "@/lib/contract-gate-service";
 import { clearContractGate, loadContractGate, saveContractGate } from "@/lib/contract-persist";
-import { fetchRetroReports, generateRetroReport } from "@/lib/retro-service";
-import type { RetroReport } from "@/lib/retro-types";
+import { fetchRetroKpiPreview, fetchRetroReports, generateRetroReport } from "@/lib/retro-service";
+import type { RetroKpiEvidenceBlock, RetroReport } from "@/lib/retro-types";
 import { clearRetroPersist, loadRetroPersist, saveRetroPersist } from "@/lib/retro-persist";
 import { fetchAgentReply } from "@/lib/chat-ai";
 import type { ChatMessage } from "@/lib/chat-types";
+import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { IntegrationEventsPanel } from "@/components/workspace/integration-events-panel";
 import { IntegrationToolsPanel } from "@/components/workspace/integration-tools-panel";
 
@@ -173,6 +174,12 @@ export function WorkspaceApp({
   const [selectedRetroId, setSelectedRetroId] = useState<string | null>(null);
   const [retroBusy, setRetroBusy] = useState(false);
   const [retroErr, setRetroErr] = useState<string | null>(null);
+  const [retroKpiPreview, setRetroKpiPreview] = useState<{
+    kpiBasis: string;
+    kpiEvidence: RetroKpiEvidenceBlock[];
+  } | null>(null);
+  const [retroKpiPreviewBusy, setRetroKpiPreviewBusy] = useState(false);
+  const [retroKpiPreviewErr, setRetroKpiPreviewErr] = useState<string | null>(null);
 
   const loadRoleGap = useCallback(async () => {
     setGapLoading(true);
@@ -489,6 +496,20 @@ export function WorkspaceApp({
     }
   }, [session]);
 
+  const handleRetroKpiPreview = useCallback(async () => {
+    setRetroKpiPreviewErr(null);
+    setRetroKpiPreviewBusy(true);
+    try {
+      const d = await fetchRetroKpiPreview(session);
+      setRetroKpiPreview({ kpiBasis: d.kpiBasis, kpiEvidence: d.kpiEvidence });
+    } catch (e: unknown) {
+      setRetroKpiPreviewErr(e instanceof Error ? e.message : "KPI 미리보기에 실패했습니다.");
+      setRetroKpiPreview(null);
+    } finally {
+      setRetroKpiPreviewBusy(false);
+    }
+  }, [session]);
+
   const sendChat = useCallback(async () => {
     const t = chatInput.trim();
     if (!t || gapLoading || !roleGap?.injectedAgents.length || chatSending) return;
@@ -611,8 +632,8 @@ export function WorkspaceApp({
   );
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-1 items-center justify-between gap-3 sm:justify-start">
             <div className="flex min-w-0 items-center gap-2">
@@ -690,7 +711,7 @@ export function WorkspaceApp({
       </header>
 
       {session.briefingMarkdown ? (
-        <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
           <details open className="mx-auto max-w-[1600px]">
             <summary className="cursor-pointer text-sm font-medium text-emerald-900">
               시나리오 브리핑 · 제출·검사·웹훅 안내
@@ -702,9 +723,9 @@ export function WorkspaceApp({
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-0 lg:flex-row">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Chat */}
-        <aside className="flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[340px] lg:border-r">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[340px] lg:border-r">
           <div className="border-b border-slate-100 px-3 py-2">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-slate-500" aria-hidden />
@@ -733,8 +754,8 @@ export function WorkspaceApp({
               </div>
             )}
           </div>
-          <div className="flex flex-1 flex-col gap-2 overflow-hidden p-3">
-            <ul className="flex max-h-[min(40vh,420px)] flex-col gap-2 overflow-y-auto text-sm lg:max-h-none lg:flex-1">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3">
+            <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain text-sm">
               {gapLoading && (
                 <li className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
                   역할 결손 정보를 불러오는 중…
@@ -748,19 +769,22 @@ export function WorkspaceApp({
                   if (m.kind === "system") {
                     return (
                       <li key={m.id} className="text-center">
-                        <span className="inline-block max-w-[95%] whitespace-pre-wrap rounded-lg bg-slate-100 px-2 py-1.5 text-[11px] leading-snug text-slate-600">
-                          {m.text}
+                        <span className="inline-block max-w-[95%] rounded-lg bg-slate-100 px-2 py-1.5 text-left text-[11px] text-slate-600">
+                          <ChatMarkdownBody
+                            text={m.text}
+                            className="!text-[11px] leading-snug [&_p]:my-0.5 [&_code]:text-[10px]"
+                          />
                         </span>
                       </li>
                     );
                   }
                   if (m.kind === "user") {
                     return (
-                      <li
-                        key={m.id}
-                        className="ml-4 whitespace-pre-wrap rounded-lg bg-slate-900 px-3 py-2 text-slate-50"
-                      >
-                        {m.text}
+                      <li key={m.id} className="ml-4 rounded-lg bg-slate-900 px-3 py-2 text-slate-50">
+                        <ChatMarkdownBody
+                          text={m.text}
+                          className="[&_a]:text-sky-300 [&_code]:bg-white/15 [&_pre]:bg-white/10"
+                        />
                       </li>
                     );
                   }
@@ -776,7 +800,10 @@ export function WorkspaceApp({
                           {m.displayName ? ` · ${m.displayName}` : ""}
                         </span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm">{m.text}</p>
+                      <ChatMarkdownBody
+                        text={m.text}
+                        className="text-sm text-slate-800 [&_a]:text-violet-700 [&_code]:bg-violet-100/90 [&_pre]:bg-slate-100"
+                      />
                     </li>
                   );
                 })}
@@ -814,7 +841,7 @@ export function WorkspaceApp({
         </aside>
 
         {/* Center: story tabs */}
-        <main className="min-w-0 flex-1 border-slate-200 bg-slate-50/80 lg:border-r">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain border-slate-200 bg-slate-50/80 lg:border-r">
           <div className="border-b border-slate-200 bg-white px-2 pt-2">
             {!specApproved && (
               <p className="px-2 pb-1 text-[11px] text-amber-800">
@@ -1298,7 +1325,8 @@ export function WorkspaceApp({
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
                   <code className="rounded bg-slate-100 px-1">POST .../retro/generate</code> ·{" "}
-                  <code className="rounded bg-slate-100 px-1">GET .../retro/reports</code>
+                  <code className="rounded bg-slate-100 px-1">GET .../retro/reports</code> ·{" "}
+                  <code className="rounded bg-slate-100 px-1">GET .../retro/kpi-preview</code>
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -1309,12 +1337,70 @@ export function WorkspaceApp({
                   >
                     {retroBusy ? "생성 중…" : "회고 리포트 생성"}
                   </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    disabled={retroKpiPreviewBusy}
+                    onClick={() => void handleRetroKpiPreview()}
+                  >
+                    {retroKpiPreviewBusy ? "불러오는 중…" : "KPI·근거 미리보기 (저장 없음)"}
+                  </button>
                 </div>
                 {retroErr && (
                   <p className="mt-2 text-sm text-red-600" role="alert">
                     {retroErr}
                   </p>
                 )}
+                {retroKpiPreviewErr ? (
+                  <p className="mt-2 text-sm text-red-600" role="alert">
+                    {retroKpiPreviewErr}
+                  </p>
+                ) : null}
+                {retroKpiPreview ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-3">
+                    <h3 className="text-xs font-medium text-slate-700">미리보기 (미저장)</h3>
+                    <p className="mt-1 text-xs text-slate-600">{retroKpiPreview.kpiBasis}</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {retroKpiPreview.kpiEvidence.map((block) => (
+                        <details
+                          key={`pv-${block.key}`}
+                          className="rounded-lg border border-slate-200 bg-white p-2 text-left"
+                        >
+                          <summary className="cursor-pointer text-xs font-medium text-slate-900">
+                            {block.labelKo}{" "}
+                            <span className="text-slate-600">
+                              {block.score}
+                              {block.unit}
+                            </span>
+                          </summary>
+                          <p className="mt-2 text-[11px] leading-snug text-slate-600">{block.summary}</p>
+                          {block.citations.length > 0 ? (
+                            <ul className="mt-2 list-none space-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-700">
+                              {block.citations.map((c, i) => {
+                                const ms = Date.parse(c.timestamp);
+                                const iso = Number.isFinite(ms) ? new Date(ms).toISOString() : "";
+                                return (
+                                  <li key={i} className="rounded bg-slate-50 px-2 py-1">
+                                    {iso ? (
+                                      <time dateTime={iso} className="font-mono text-slate-500">
+                                        {c.timestamp}
+                                      </time>
+                                    ) : (
+                                      <span className="font-mono text-slate-500">{c.timestamp}</span>
+                                    )}{" "}
+                                    <span className="font-medium">{c.eventType}</span> — {c.note}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : (
+                            <p className="mt-2 text-[11px] text-slate-500">인용할 관련 이벤트가 없습니다.</p>
+                          )}
+                        </details>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 {retroReports.length > 0 && (
                   <div className="mt-4">
@@ -1366,27 +1452,71 @@ export function WorkspaceApp({
                         {sel.kpiBasis ??
                           "(구 리포트) 통합 이벤트 기반 한 줄 근거가 없습니다. 새로 생성하면 표시됩니다."}
                       </p>
-                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        {(
-                          [
-                            ["역할 균형", k.roleBalanceScore, "/100"],
-                            ["재작업률", k.reworkRatePercent, "%"],
-                            ["리뷰 반영률", k.reviewReflectionPercent, "%"],
-                            ["커뮤니케이션", k.communicationScore, "/100"]
-                          ] as const
-                        ).map(([label, val, unit]) => (
-                          <div
-                            key={label}
-                            className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center"
-                          >
-                            <div className="text-xs text-slate-500">{label}</div>
-                            <div className="text-lg font-semibold text-slate-900">
-                              {val}
-                              <span className="text-sm font-normal text-slate-500">{unit}</span>
+                      {sel.kpiEvidence && sel.kpiEvidence.length > 0 ? (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-2">
+                          {sel.kpiEvidence.map((block) => (
+                            <details
+                              key={block.key}
+                              className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-left"
+                            >
+                              <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                                {block.labelKo}{" "}
+                                <span className="text-base font-semibold tabular-nums">
+                                  {block.score}
+                                  <span className="text-xs font-normal text-slate-500">{block.unit}</span>
+                                </span>
+                              </summary>
+                              <p className="mt-2 text-[11px] leading-snug text-slate-600">{block.summary}</p>
+                              {block.citations.length > 0 ? (
+                                <ul className="mt-2 list-none space-y-1 border-t border-slate-200/80 pt-2 text-[11px] text-slate-800">
+                                  {block.citations.map((c, i) => {
+                                    const ms = Date.parse(c.timestamp);
+                                    const iso = Number.isFinite(ms) ? new Date(ms).toISOString() : "";
+                                    return (
+                                      <li key={i} className="rounded bg-white px-2 py-1 shadow-sm">
+                                        {iso ? (
+                                          <time dateTime={iso} className="font-mono text-slate-500">
+                                            {c.timestamp}
+                                          </time>
+                                        ) : (
+                                          <span className="font-mono text-slate-500">{c.timestamp}</span>
+                                        )}{" "}
+                                        <span className="font-medium">{c.eventType}</span> — {c.note}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              ) : (
+                                <p className="mt-2 text-[11px] text-slate-500">
+                                  인용할 관련 이벤트가 없습니다.
+                                </p>
+                              )}
+                            </details>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          {(
+                            [
+                              ["역할 균형", k.roleBalanceScore, "/100"],
+                              ["재작업률", k.reworkRatePercent, "%"],
+                              ["리뷰 반영률", k.reviewReflectionPercent, "%"],
+                              ["커뮤니케이션", k.communicationScore, "/100"]
+                            ] as const
+                          ).map(([label, val, unit]) => (
+                            <div
+                              key={label}
+                              className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center"
+                            >
+                              <div className="text-xs text-slate-500">{label}</div>
+                              <div className="text-lg font-semibold text-slate-900">
+                                {val}
+                                <span className="text-sm font-normal text-slate-500">{unit}</span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                       <div>
                         <h3 className="text-xs font-medium text-slate-600">다음 스프린트 행동 3개</h3>
                         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-800">
@@ -1445,7 +1575,7 @@ export function WorkspaceApp({
         </main>
 
         {/* Right: thinking + timeline */}
-        <aside className="flex w-full shrink-0 flex-col gap-0 border-slate-200 bg-white lg:w-[300px] lg:border-l">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col gap-0 overflow-y-auto border-slate-200 bg-white lg:w-[300px] lg:border-l">
           <div className="border-b border-slate-100">
             <div className="flex items-center gap-2 px-3 py-2">
               <Sparkles className="h-4 w-4 text-amber-600" aria-hidden />

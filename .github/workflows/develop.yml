@@ -1,0 +1,71 @@
+# develop 푸시 → CI + 자체 서버(EC2 등)에 Docker 배포
+#
+# AWS Free Tier(EC2) 기준 단계별 가이드: docs/deploy-aws-ec2-free-tier.md
+#
+# 서버 1회 준비:
+#   - Docker / Docker Compose 설치
+#   - 디렉터리에 클론: git clone … && git checkout develop
+#   - deploy/env.deploy.example → deploy/.env.deploy 복사 후 값 수정
+#
+# GitHub Actions Secrets:
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY (배포용 SSH 개인키 전문)
+# 선택 Secret: VPS_SSH_PORT (기본 22)
+#
+# GitHub Variables (Settings → Variables):
+#   VPS_DEPLOY_PATH — 클론 경로 (예: /opt/us_vibe). 비우면 /opt/us_vibe 사용.
+
+name: develop
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: develop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  deploy-vps:
+    needs: ci
+    if: github.repository == 'US-VIBE/us_vibe'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH (git pull + docker compose)
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -euo pipefail
+            TARGET='${{ vars.VPS_DEPLOY_PATH }}'
+            if [ -z "$TARGET" ]; then TARGET=/opt/us_vibe; fi
+            cd "$TARGET"
+            git fetch origin develop
+            git checkout develop
+            git reset --hard origin/develop
+            docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.deploy pull || true
+            docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.deploy build
+            docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.deploy up -d

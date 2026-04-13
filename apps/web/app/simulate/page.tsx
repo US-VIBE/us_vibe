@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { getApiBaseUrl } from "../../lib/api-base";
 import styles from "./simulate-page.module.css";
 
@@ -133,7 +134,14 @@ function chatBubble(ev: TimelineItem) {
           }}
         >
           <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>학습자 · {time}</div>
-          {text || "(빈 메시지)"}
+          {text.trim() ? (
+            <ChatMarkdownBody
+              text={text}
+              className="text-sm text-[#1e3a8a] [&_a]:text-blue-700 [&_code]:bg-blue-100/90 [&_pre]:bg-blue-100/50"
+            />
+          ) : (
+            <span style={{ fontSize: 14 }}>(빈 메시지)</span>
+          )}
         </div>
       </div>
     );
@@ -155,14 +163,24 @@ function chatBubble(ev: TimelineItem) {
           }}
         >
           <div style={{ fontSize: 11, color: "#047857", marginBottom: 4 }}>시나리오 브리핑 · {time}</div>
-          <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{md || JSON.stringify(ev.payload)}</pre>
+          {md.trim() ? (
+            <ChatMarkdownBody
+              text={md}
+              className="text-[13px] text-[#064e3b] [&_a]:text-emerald-800 [&_code]:bg-emerald-100/80 [&_pre]:bg-emerald-100/60"
+            />
+          ) : (
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 }}>
+              {JSON.stringify(ev.payload)}
+            </pre>
+          )}
         </div>
       </div>
     );
   }
   if (ev.eventType === "agent_reply") {
     const role = String((ev.payload as { role?: string }).role ?? "AI");
-    const text = String((ev.payload as { text?: string }).text ?? JSON.stringify(ev.payload));
+    const raw = String((ev.payload as { text?: string }).text ?? JSON.stringify(ev.payload));
+    const clipped = raw.length > 12000 ? `${raw.slice(0, 12000)}\n\n…(일부 생략)` : raw;
     return (
       <div key={ev.id} style={{ marginBottom: 12, textAlign: "left" }}>
         <div
@@ -179,7 +197,10 @@ function chatBubble(ev: TimelineItem) {
           <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>
             {role} · {time}
           </div>
-          <div style={{ whiteSpace: "pre-wrap" }}>{text.slice(0, 4000)}{text.length > 4000 ? "…" : ""}</div>
+          <ChatMarkdownBody
+            text={clipped}
+            className="text-sm text-[#0f172a] [&_a]:text-violet-700 [&_code]:bg-slate-200/90 [&_pre]:bg-slate-200/80"
+          />
         </div>
       </div>
     );
@@ -231,6 +252,11 @@ export default function SimulatePage() {
 
   const refresh = useCallback(async () => {
     const id = sessionId.trim();
+    if (!api) {
+      setSession(null);
+      setTimeline([]);
+      return;
+    }
     if (!id) {
       setSession(null);
       setTimeline([]);
@@ -249,6 +275,16 @@ export default function SimulatePage() {
   useEffect(() => {
     let cancelled = false;
     const checkEnv = async () => {
+      if (!api) {
+        if (!cancelled) {
+          setEnv({
+            apiOk: false,
+            dbOk: false,
+            checkedAt: new Date().toLocaleTimeString()
+          });
+        }
+        return;
+      }
       try {
         const h = await fetch(`${api}/health`);
         const hJson = (await h.json()) as { ok?: boolean };
@@ -615,6 +651,31 @@ export default function SimulatePage() {
         <strong>채팅 뷰</strong>(타임라인 + 학습자 메시지)를 한 화면에서 씁니다. 모바일 푸시·서버 Web Push는 포함하지
         않습니다.
       </p>
+      {!api ? (
+        <section
+          style={{
+            marginTop: 16,
+            padding: 16,
+            background: "#fef2f2",
+            borderRadius: 8,
+            border: "1px solid #fecaca",
+            color: "#7f1d1d",
+            fontSize: 14,
+            lineHeight: 1.55
+          }}
+        >
+          <strong>Nest API 주소가 설정되지 않았습니다.</strong> Netlify(또는 Next 호스팅)에{" "}
+          <code style={{ background: "#fee2e2", padding: "2px 6px", borderRadius: 4 }}>
+            NEXT_PUBLIC_API_URL
+          </code>{" "}
+          (필요 시{" "}
+          <code style={{ background: "#fee2e2", padding: "2px 6px", borderRadius: 4 }}>
+            NEXT_PUBLIC_API_BASE_URL
+          </code>
+          )에 Render/Fly 등에 둔 API의 <code>https://…</code> 를 넣고 <strong>다시 배포</strong>하세요. 로컬은{" "}
+          <code>apps/web/.env.local</code> 입니다.
+        </section>
+      ) : null}
       <p style={{ color: "#374151", fontSize: 14, lineHeight: 1.5 }}>
         <strong>시뮬만 쓰기:</strong> 이 화면은 Postgres 시뮬·타임라인 중심입니다.{" "}
         <Link href="/" style={{ color: "#2563eb" }}>
@@ -719,8 +780,9 @@ export default function SimulatePage() {
             터미널: <code>npm run dev:stack</code> 또는 DB 기동 + <code>npm run migrate</code> 후 API
           </li>
           <li>
-            이 페이지 API 주소: <code>{api}</code> (<code>apps/web/.env.local</code>의{" "}
-            <code>NEXT_PUBLIC_API_BASE_URL</code>)
+            이 페이지 API 주소: <code>{api || "(미설정)"}</code> — 로컬은{" "}
+            <code>apps/web/.env.local</code>, Netlify는 Site → Environment variables 의{" "}
+            <code>NEXT_PUBLIC_API_URL</code>
           </li>
         </ul>
         <p style={{ margin: "8px 0 0", fontSize: 14 }}>
@@ -1060,9 +1122,8 @@ export default function SimulatePage() {
             <code>user_message</code> / <code>agent_reply</code> 위주로 표시합니다.
           </p>
           <div
+            className={styles.chatScroll}
             style={{
-              flex: 1,
-              overflowY: "auto",
               minHeight: 280,
               padding: "8px 4px",
               background: "#fafafa",

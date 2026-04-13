@@ -29,9 +29,10 @@ export class IntegrationRedisPubSubService implements OnModuleDestroy {
     }
   }
 
-  async publishResolved(event: IntegrationEvent): Promise<void> {
+  /** Pub/Sub 비활성 시 true, 성공 시 true, 재시도 후 실패 시 false */
+  async publishResolved(event: IntegrationEvent): Promise<boolean> {
     if (!this.client) {
-      return;
+      return true;
     }
     const channel =
       process.env.INTEGRATION_REDIS_CHANNEL?.trim() || "integration:events";
@@ -56,19 +57,20 @@ export class IntegrationRedisPubSubService implements OnModuleDestroy {
           await this.client.connect();
         }
         await this.client.publish(channel, JSON.stringify(event));
-        return;
+        return true;
       } catch (e) {
         const msg = (e as Error).message;
         if (attempt >= maxAttempts) {
           this.logger.warn(
             `Redis publish failed after ${maxAttempts} attempt(s): ${msg}`,
           );
-          return;
+          return false;
         }
         const delayMs = baseBackoffMs * 2 ** (attempt - 1);
         await this.sleepUnref(delayMs);
       }
     }
+    return false;
   }
 
   private sleepUnref(ms: number): Promise<void> {
