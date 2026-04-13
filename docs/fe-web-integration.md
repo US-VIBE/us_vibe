@@ -88,7 +88,7 @@ CORS는 API에서 `origin: true`, `credentials: true`로 설정되어 있다.
 |--------|------|------|
 | GET | `/api/integration/events` | 통합 이벤트 로그 조회 |
 | GET | `/api/integration/unified-timeline` | SQLite 이벤트 + Postgres `collaboration_events` 병합(세션 UUID일 때 후자) |
-| GET | `/api/integration/stream` | SSE Thought Stream — 브라우저는 `EventSource` 대신 **fetch + Authorization** ([`integration-sse.ts`](../apps/web/lib/integration-sse.ts)) |
+| GET | `/api/integration/stream?sessionId=<uuid>` | SSE Thought Stream — **세션 UUID 필수**(서버에서 소유 검사 후 Redis 이벤트를 해당 세션만 전달). 브라우저는 `EventSource` 대신 **fetch + Authorization** ([`integration-sse.ts`](../apps/web/lib/integration-sse.ts)) |
 | GET | `/api/validation/status/{prNumber}` | PR 정적 검증 캐시 + `consecutiveFailures` 루프 가드 |
 | POST | `/api/vfs/snapshot` | VFS 스냅샷 — 응답 `diffUrl`은 **API 기준 경로**이므로 전체 URL은 `NEXT_PUBLIC_API_URL` + `diffUrl` 결합 ([`vfs-api.ts`](../apps/web/lib/vfs-api.ts) `resolveVfsDiffUrl`) |
 | GET/POST | `/api/vfs/diff/{id}`, `/api/vfs/approve/{id}` | Diff 조회 · 승인 |
@@ -104,7 +104,7 @@ CORS는 API에서 `origin: true`, `credentials: true`로 설정되어 있다.
 | **필드** | `type`, `sessionId`, `stateVersion`, `triggeredBy`, `payload`, `timestamp`(ISO 8601). |
 | **에러·버전** | Redis 메시지에 HTTP 에러 코드를 실어 보내지 **않음**. 스트림 소비 실패는 연결/파싱 측에서 처리. |
 | **SSE `data:` 줄** | (1) Redis에서 온 경우: 위 **IntegrationEvent JSON과 동일 문자열**. (2) 하트비트: `{"type":"heartbeat","redis":true\|false,"t":"<ISO>"}` ([`integration-stream.controller.ts`](../apps/api/src/integration/integration-stream.controller.ts)). |
-| **클라이언트** | 브라우저는 `Authorization`이 필요하므로 `EventSource` 대신 **fetch + SSE 파싱** ([`integration-sse.ts`](../apps/web/lib/integration-sse.ts)). |
+| **클라이언트** | 브라우저는 `Authorization`이 필요하므로 `EventSource` 대신 **fetch + SSE 파싱** ([`integration-sse.ts`](../apps/web/lib/integration-sse.ts)). 쿼리 `sessionId`는 현재 워크스페이스 UUID와 일치해야 한다. |
 
 #### 통합 타임라인 UI (제품 결정)
 

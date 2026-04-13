@@ -32,8 +32,8 @@ import { SessionsModule } from "./sessions/sessions.module";
     AuthModule,
     CollaborationModule,
     SessionsModule,
-    IntegrationModule,
-    PersistenceModule
+    PersistenceModule,
+    IntegrationModule
   ],
   controllers: [
     AppController,

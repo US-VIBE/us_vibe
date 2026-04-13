@@ -1,19 +1,23 @@
+import { refreshAuthSession } from "./auth-api";
 import { getAccessToken } from "./auth-storage";
 
 /**
  * GET /api/integration/stream — Bearer는 EventSource가 못 쓰므로 fetch + SSE 파싱.
+ * `sessionId`는 서버에서 워크스페이스 접근 검사 및 Redis 이벤트 필터에 사용된다.
  */
 export function startIntegrationSseStream(
   apiBase: string,
+  sessionId: string,
   onData: (rawJsonOrText: string) => void,
   signal: AbortSignal
 ): Promise<void> {
   const base = apiBase.replace(/\/$/, "");
-  const url = `${base}/api/integration/stream`;
-  const token = getAccessToken();
+  const sid = encodeURIComponent(sessionId);
+  const url = `${base}/api/integration/stream?sessionId=${sid}`;
 
-  return (async () => {
-    const res = await fetch(url, {
+  const openStream = async (): Promise<Response> => {
+    const token = getAccessToken();
+    return fetch(url, {
       method: "GET",
       headers: {
         Accept: "text/event-stream",
@@ -22,6 +26,14 @@ export function startIntegrationSseStream(
       credentials: "include",
       signal
     });
+  };
+
+  return (async () => {
+    let res = await openStream();
+    if (res.status === 401) {
+      await refreshAuthSession();
+      res = await openStream();
+    }
     if (!res.ok || !res.body) {
       throw new Error(`SSE ${res.status}`);
     }
