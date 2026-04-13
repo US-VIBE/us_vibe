@@ -15,11 +15,14 @@ import {
   type UnifiedTimelineData,
   type UnifiedTimelineQuery
 } from "@/lib/unified-timeline-api";
+import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { startIntegrationSseStream } from "@/lib/integration-sse";
 import {
+  evaluateSessionArtifact,
   fetchInAppNotifications,
   fetchIntegrationHints,
   fetchProjectState,
+  fetchSessionArtifacts,
   fetchWebhookRoutes,
   registerWebhookRoute,
   deleteWebhookRoute,
@@ -31,6 +34,7 @@ import {
   uploadWorkspaceArtifact,
   type IntegrationHints,
   type ProjectStatePayload,
+  type SessionArtifactRow,
   type WebhookRouteRow,
   type WorkspaceGates
 } from "@/lib/workspace-collab-api";
@@ -48,6 +52,14 @@ const ROLE_OPTIONS: Array<{ id: string; label: string }> = [
 ];
 
 const UNI_TIMELINE_TABS = ["merged", "sqlite", "postgres"] as const;
+
+const ARTIFACT_KINDS = [
+  { id: "erd", label: "ERD·스케치" },
+  { id: "github_snapshot", label: "GitHub UI 스냅샷" },
+  { id: "code_snapshot", label: "코드 에디터/디프" }
+] as const;
+
+type ArtifactKindId = (typeof ARTIFACT_KINDS)[number]["id"];
 
 type Props = {
   apiBaseUrl: string;
@@ -141,6 +153,10 @@ export function IntegrationToolsPanel({
   const [hintsErr, setHintsErr] = useState<string | null>(null);
   const [artifactBusy, setArtifactBusy] = useState(false);
   const [artifactMsg, setArtifactMsg] = useState<string | null>(null);
+  const [artifactKind, setArtifactKind] = useState<ArtifactKindId>("erd");
+  const [artifacts, setArtifacts] = useState<SessionArtifactRow[]>([]);
+  const [artifactsErr, setArtifactsErr] = useState<string | null>(null);
+  const [evalBusyId, setEvalBusyId] = useState<string | null>(null);
   const [notifs, setNotifs] = useState<
     Array<{ id: string; title: string; body: string; kind: string; createdAt: string }>
   >([]);
@@ -162,6 +178,16 @@ export function IntegrationToolsPanel({
       .catch((e: unknown) => setPsErr(e instanceof Error ? e.message : String(e)));
   }, [apiBaseUrl, sid]);
 
+  const loadArtifacts = useCallback(() => {
+    setArtifactsErr(null);
+    void fetchSessionArtifacts(apiBaseUrl, sid)
+      .then(setArtifacts)
+      .catch((e: unknown) => {
+        setArtifacts([]);
+        setArtifactsErr(e instanceof Error ? e.message : String(e));
+      });
+  }, [apiBaseUrl, sid]);
+
   useEffect(() => {
     refreshGates();
     refreshProjectState();
@@ -181,7 +207,8 @@ export function IntegrationToolsPanel({
     void fetchInAppNotifications(apiBaseUrl, sid)
       .then(setNotifs)
       .catch(() => setNotifs([]));
-  }, [apiBaseUrl, sid]);
+    loadArtifacts();
+  }, [apiBaseUrl, sid, loadArtifacts]);
 
   useEffect(() => {
     setPrInput(prNumberToInput(storyPrNumber));
@@ -518,7 +545,26 @@ export function IntegrationToolsPanel({
               ) : null}
             </div>
             <div className="mt-3 border-t border-indigo-200 pt-3">
-              <p className="text-xs font-medium text-indigo-950">ERD·스케치 (PNG/JPEG/WebP/PDF, 최대 5MB)</p>
+              <p className="text-xs font-medium text-indigo-950">산출물 제출 (PNG/JPEG/WebP/PDF, 최대 5MB)</p>
+              <p className="mt-1 text-[11px] leading-snug text-amber-950/90">
+                스크린샷에 토큰·비밀번호·개인정보가 포함되지 않게 해 주세요. AI 평가는 이미지에 대해서만 동작하며 PDF는
+                스킵됩니다.
+              </p>
+              <label className="mt-2 block text-xs text-indigo-900">
+                제출 종류
+                <select
+                  className="ml-2 rounded border border-indigo-200 bg-white px-2 py-1 text-xs"
+                  value={artifactKind}
+                  disabled={artifactBusy}
+                  onChange={(e) => setArtifactKind(e.target.value as ArtifactKindId)}
+                >
+                  {ARTIFACT_KINDS.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp,application/pdf"
@@ -529,11 +575,12 @@ export function IntegrationToolsPanel({
                   if (!f) return;
                   setArtifactBusy(true);
                   setArtifactMsg(null);
-                  void uploadWorkspaceArtifact(apiBaseUrl, sid, f, "erd")
+                  void uploadWorkspaceArtifact(apiBaseUrl, sid, f, artifactKind)
                     .then(async () => {
                       setArtifactMsg(`업로드 완료: ${f.name}`);
                       const next = await fetchInAppNotifications(apiBaseUrl, sid);
                       setNotifs(next);
+                      loadArtifacts();
                     })
                     .catch((e: unknown) => {
                       setArtifactMsg(e instanceof Error ? e.message : String(e));
@@ -544,6 +591,67 @@ export function IntegrationToolsPanel({
                     });
                 }}
               />
+              {artifactsErr ? (
+                <p className="mt-2 text-[11px] text-red-600">{artifactsErr}</p>
+              ) : artifacts.length > 0 ? (
+                <ul className="mt-2 max-h-44 space-y-2 overflow-y-auto rounded border border-indigo-100 bg-white/90 p-2 text-[11px] text-slate-800">
+                  {artifacts.map((a) => (
+                    <li key={a.id} className="border-b border-indigo-50 pb-2 last:border-0 last:pb-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{a.originalName}</span>
+                        <span className="text-slate-500">
+                          {a.kind} · {a.mime}
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded border border-indigo-600 bg-indigo-50 px-2 py-0.5 text-indigo-950"
+                          disabled={evalBusyId != null}
+                          onClick={() => {
+                            setEvalBusyId(a.id);
+                            setArtifactMsg(null);
+                            void evaluateSessionArtifact(apiBaseUrl, sid, a.id, {
+                              force: a.evaluation?.status === "completed"
+                            })
+                              .then(async ({ data }) => {
+                                if (data?.evaluation?.status === "completed") {
+                                  setArtifactMsg("AI 평가가 반영되었습니다.");
+                                } else if (data?.evaluation?.status === "skipped") {
+                                  setArtifactMsg(data.evaluation.reason);
+                                } else if (data?.evaluation?.status === "failed") {
+                                  setArtifactMsg(data.evaluation.error);
+                                }
+                                loadArtifacts();
+                                const next = await fetchInAppNotifications(apiBaseUrl, sid);
+                                setNotifs(next);
+                              })
+                              .catch((e: unknown) => {
+                                setArtifactMsg(e instanceof Error ? e.message : String(e));
+                              })
+                              .finally(() => setEvalBusyId(null));
+                          }}
+                        >
+                          {evalBusyId === a.id
+                            ? "평가 중…"
+                            : a.evaluation?.status === "completed"
+                              ? "AI 재평가"
+                              : "AI 평가"}
+                        </button>
+                      </div>
+                      {a.evaluation?.status === "completed" ? (
+                        <div className="mt-1 rounded bg-slate-50/90 p-2 text-slate-800">
+                          <ChatMarkdownBody text={a.evaluation.text} className="text-[11px]" />
+                        </div>
+                      ) : a.evaluation?.status === "failed" ? (
+                        <p className="mt-1 text-red-700">{a.evaluation.error}</p>
+                      ) : a.evaluation?.status === "skipped" ? (
+                        <p className="mt-1 text-slate-600">{a.evaluation.reason}</p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-[11px] text-slate-500">아직 제출된 산출물이 없습니다.</p>
+              )}
             </div>
           </div>
         ) : null}

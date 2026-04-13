@@ -4,6 +4,7 @@ import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { TypeOrmModule, type TypeOrmModuleOptions } from "@nestjs/typeorm";
+import { AiModule } from "./ai/ai.module";
 import { AppController } from "./app.controller";
 import { AuthModule } from "./auth/auth.module";
 import { CollaborationModule } from "./collaboration/collaboration.module";
@@ -28,6 +29,7 @@ import { SessionsModule } from "./sessions/sessions.module";
     TypeOrmModule.forRoot(
       createDataSourceOptions() as TypeOrmModuleOptions
     ),
+    AiModule,
     RedisIntegrationModule,
     AuthModule,
     CollaborationModule,

@@ -3,18 +3,25 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
   Req,
+  ServiceUnavailableException,
   UploadedFile,
   UseGuards,
   UseInterceptors
 } from "@nestjs/common";
+import * as fs from "fs";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthedRequest } from "../auth/authed-request";
-import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import { GeminiService } from "../ai/gemini.service";
+import {
+  WorkspacePersistenceService,
+  type SessionArtifactEvaluation
+} from "../persistence/workspace-persistence.service";
 import { getScenarioPackById, renderGithubEnvSnippet } from "../scenarios/scenario-registry";
 import { LOGIN_MVP_PACK } from "../scenarios/packs/login-mvp.pack";
 import { buildRoleGapPayload } from "./role-gap.util";
@@ -25,7 +32,10 @@ import { buildRoleGapPayload } from "./role-gap.util";
 @Controller("api/sessions")
 @UseGuards(JwtAuthGuard)
 export class SessionController {
-  constructor(private readonly workspace: WorkspacePersistenceService) {}
+  constructor(
+    private readonly workspace: WorkspacePersistenceService,
+    private readonly gemini: GeminiService
+  ) {}
 
   @Get(":sessionId/role-gap")
   roleGap(@Param("sessionId") sessionId: string, @Req() req: AuthedRequest) {
@@ -124,7 +134,9 @@ export class SessionController {
         message: "multipart 필드 file 이 필요합니다."
       });
     }
-    const kind = typeof body?.kind === "string" && body.kind.trim() ? body.kind.trim() : "erd";
+    const rawKind = typeof body?.kind === "string" ? body.kind.trim() : "";
+    const kind =
+      rawKind.length > 0 && /^[a-z][a-z0-9_-]{0,63}$/i.test(rawKind) ? rawKind.toLowerCase() : "erd";
     try {
       const record = this.workspace.saveSessionArtifact({
         sessionId,
@@ -157,6 +169,106 @@ export class SessionController {
         });
       }
       throw e;
+    }
+  }
+
+  /** Body: `{ "force": true }` 이면 완료된 평가도 다시 호출합니다. */
+  @Post(":sessionId/artifacts/:artifactId/evaluate")
+  async evaluateArtifact(
+    @Param("sessionId") sessionId: string,
+    @Param("artifactId") artifactId: string,
+    @Body() body: { force?: boolean },
+    @Req() req: AuthedRequest
+  ) {
+    this.workspace.assertWorkspaceSessionAccess(sessionId, req.user.sub);
+    if (!this.gemini.isConfigured()) {
+      throw new ServiceUnavailableException({
+        ok: false,
+        code: "GEMINI_NOT_CONFIGURED",
+        message: "산출물 AI 평가에는 API 환경에 GEMINI_API_KEY가 필요합니다."
+      });
+    }
+    const art = this.workspace.getSessionArtifact(sessionId, artifactId);
+    if (!art) {
+      throw new NotFoundException({
+        ok: false,
+        code: "ARTIFACT_NOT_FOUND",
+        message: "산출물을 찾을 수 없습니다."
+      });
+    }
+    const force = Boolean(body?.force);
+    if (!force && art.evaluation?.status === "completed") {
+      return { ok: true, data: art, cached: true as const };
+    }
+
+    const now = new Date().toISOString();
+    if (/^application\/pdf$/i.test(art.mime)) {
+      const skipped: SessionArtifactEvaluation = {
+        status: "skipped",
+        reason:
+          "PDF는 현재 자동 AI 비전 평가를 지원하지 않습니다. 스크린샷은 PNG/JPEG/WebP로 제출해 주세요.",
+        evaluatedAt: now
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, skipped);
+      return { ok: true, data: updated, cached: false as const };
+    }
+
+    const isImage =
+      /^image\/(png|jpeg|webp)$/i.test(art.mime) || art.mime === "image/jpg";
+    if (!isImage) {
+      const skipped: SessionArtifactEvaluation = {
+        status: "skipped",
+        reason: "이 MIME 형식은 이미지 AI 평가 대상이 아닙니다.",
+        evaluatedAt: now
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, skipped);
+      return { ok: true, data: updated, cached: false as const };
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = fs.readFileSync(art.storedPath);
+    } catch {
+      throw new NotFoundException({
+        ok: false,
+        code: "ARTIFACT_FILE_MISSING",
+        message: "저장된 파일을 읽을 수 없습니다."
+      });
+    }
+
+    const base64 = buffer.toString("base64");
+    try {
+      const { text, model, promptVersion } = await this.gemini.evaluateArtifactImage({
+        mime: art.mime,
+        base64,
+        kind: art.kind
+      });
+      const completed: SessionArtifactEvaluation = {
+        status: "completed",
+        model,
+        promptVersion,
+        text,
+        evaluatedAt: new Date().toISOString()
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, completed);
+      if (updated) {
+        this.workspace.appendInAppNotification({
+          sessionId,
+          kind: "artifact_evaluated",
+          title: "AI 산출물 피드백",
+          body: `${updated.kind} (${updated.originalName}): ${text.slice(0, 160)}${text.length > 160 ? "…" : ""}`
+        });
+      }
+      return { ok: true, data: updated, cached: false as const };
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const failed: SessionArtifactEvaluation = {
+        status: "failed",
+        error: errMsg,
+        evaluatedAt: new Date().toISOString()
+      };
+      const updated = this.workspace.setSessionArtifactEvaluation(sessionId, artifactId, failed);
+      return { ok: true, data: updated, cached: false as const };
     }
   }
 

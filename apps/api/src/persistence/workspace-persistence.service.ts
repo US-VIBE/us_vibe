@@ -111,6 +111,27 @@ export interface PrValidationStatusEnvelope {
   validation: PrValidationCacheRow | null;
 }
 
+/** AI 스냅샷 평가 결과 — `session_artifact.evaluation_json` */
+export type SessionArtifactEvaluation =
+  | {
+      status: "completed";
+      model: string;
+      promptVersion: string;
+      text: string;
+      evaluatedAt: string;
+    }
+  | {
+      status: "failed";
+      model?: string;
+      error: string;
+      evaluatedAt: string;
+    }
+  | {
+      status: "skipped";
+      reason: string;
+      evaluatedAt: string;
+    };
+
 export interface SessionArtifactRecord {
   id: string;
   sessionId: string;
@@ -121,6 +142,7 @@ export interface SessionArtifactRecord {
   storedPath: string;
   rubric: { passed: boolean; checks: { id: string; pass: boolean; note: string }[] };
   createdAt: string;
+  evaluation: SessionArtifactEvaluation | null;
 }
 
 export interface InAppNotificationRow {
@@ -278,7 +300,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
         size_bytes INTEGER NOT NULL,
         stored_path TEXT NOT NULL,
         rubric_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        evaluation_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_session_artifact_session
         ON session_artifact (session_id, created_at DESC);
@@ -327,6 +350,7 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     this.ensureColumn("workspace_session", "session_profile", "TEXT");
     this.ensureColumn("workspace_session", "project_state", "TEXT");
     this.ensureColumn("workspace_session", "owner_user_id", "TEXT");
+    this.ensureColumn("session_artifact", "evaluation_json", "TEXT");
     this.logger.log(`SQLite workspace state: ${dbPath}`);
   }
 
@@ -719,8 +743,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_artifact (id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
       )
       .run(
         id,
@@ -742,7 +766,8 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       sizeBytes: input.buffer.length,
       storedPath,
       rubric,
-      createdAt
+      createdAt,
+      evaluation: null
     };
   }
 
@@ -765,10 +790,87 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
     return { passed: checks.every((c) => c.pass), checks };
   }
 
+  private parseEvaluationJson(raw: string | null): SessionArtifactEvaluation | null {
+    if (raw == null || raw.trim() === "") {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as SessionArtifactEvaluation;
+    } catch {
+      return null;
+    }
+  }
+
+  private rowToSessionArtifact(r: {
+    id: string;
+    session_id: string;
+    kind: string;
+    original_name: string;
+    mime: string;
+    size_bytes: number;
+    stored_path: string;
+    rubric_json: string;
+    created_at: string;
+    evaluation_json: string | null;
+  }): SessionArtifactRecord {
+    return {
+      id: r.id,
+      sessionId: r.session_id,
+      kind: r.kind,
+      originalName: r.original_name,
+      mime: r.mime,
+      sizeBytes: r.size_bytes,
+      storedPath: r.stored_path,
+      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
+      createdAt: r.created_at,
+      evaluation: this.parseEvaluationJson(r.evaluation_json)
+    };
+  }
+
+  getSessionArtifact(sessionId: string, artifactId: string): SessionArtifactRecord | null {
+    const r = this.db
+      .prepare(
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json
+         FROM session_artifact WHERE session_id = ? AND id = ?`
+      )
+      .get(sessionId, artifactId) as
+      | {
+          id: string;
+          session_id: string;
+          kind: string;
+          original_name: string;
+          mime: string;
+          size_bytes: number;
+          stored_path: string;
+          rubric_json: string;
+          created_at: string;
+          evaluation_json: string | null;
+        }
+      | undefined;
+    return r ? this.rowToSessionArtifact(r) : null;
+  }
+
+  setSessionArtifactEvaluation(
+    sessionId: string,
+    artifactId: string,
+    evaluation: SessionArtifactEvaluation
+  ): SessionArtifactRecord | null {
+    const info = this.db
+      .prepare("SELECT session_id FROM session_artifact WHERE id = ?")
+      .get(artifactId) as { session_id: string } | undefined;
+    if (!info || info.session_id !== sessionId) {
+      return null;
+    }
+    this.db
+      .prepare("UPDATE session_artifact SET evaluation_json = ? WHERE id = ? AND session_id = ?")
+      .run(JSON.stringify(evaluation), artifactId, sessionId);
+    return this.getSessionArtifact(sessionId, artifactId);
+  }
+
   listSessionArtifacts(sessionId: string): SessionArtifactRecord[] {
     const rows = this.db
       .prepare(
-        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at
+        `SELECT id, session_id, kind, original_name, mime, size_bytes, stored_path, rubric_json, created_at, evaluation_json
          FROM session_artifact WHERE session_id = ? ORDER BY created_at DESC`
       )
       .all(sessionId) as Array<{
@@ -781,18 +883,9 @@ export class WorkspacePersistenceService implements OnModuleInit, OnModuleDestro
       stored_path: string;
       rubric_json: string;
       created_at: string;
+      evaluation_json: string | null;
     }>;
-    return rows.map((r) => ({
-      id: r.id,
-      sessionId: r.session_id,
-      kind: r.kind,
-      originalName: r.original_name,
-      mime: r.mime,
-      sizeBytes: r.size_bytes,
-      storedPath: r.stored_path,
-      rubric: JSON.parse(r.rubric_json) as SessionArtifactRecord["rubric"],
-      createdAt: r.created_at
-    }));
+    return rows.map((r) => this.rowToSessionArtifact(r));
   }
 
   appendInAppNotification(input: {
