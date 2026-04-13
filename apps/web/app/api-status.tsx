@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getApiBaseUrl, isPublicApiConfigured } from "../lib/api-base";
 
 type HealthOk = { ok: true; service: string };
@@ -9,20 +9,35 @@ type State =
   | { status: "ok"; data: HealthOk }
   | { status: "error"; message: string };
 
+const CONFIG_ERROR_MESSAGE =
+  "Nest API URL이 없습니다. Netlify(또는 프론트 호스트) 환경 변수에 NEXT_PUBLIC_API_URL(끝 / 없이)을 설정한 뒤 다시 배포하세요.";
+
+type FetchResult =
+  | { status: "ok"; data: HealthOk }
+  | { status: "error"; message: string };
+
+type FetchState = { base: string } & FetchResult;
+
 export function ApiStatus() {
-  const [state, setState] = useState<State>({ status: "loading" });
   const base = getApiBaseUrl();
+  const missingConfig = !isPublicApiConfigured() || !base;
+  const [fetchState, setFetchState] = useState<FetchState | null>(null);
+
+  const state: State = useMemo(() => {
+    if (missingConfig) {
+      return { status: "error", message: CONFIG_ERROR_MESSAGE };
+    }
+    if (!fetchState || fetchState.base !== base) {
+      return { status: "loading" };
+    }
+    return fetchState;
+  }, [base, fetchState, missingConfig]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!isPublicApiConfigured() || !base) {
-      setState({
-        status: "error",
-        message:
-          "Nest API URL이 없습니다. Netlify(또는 프론트 호스트) 환경 변수에 NEXT_PUBLIC_API_URL(끝 / 없이)을 설정한 뒤 다시 배포하세요."
-      });
+    if (missingConfig) {
       return;
     }
+    let cancelled = false;
     const url = `${base}/health`;
 
     void (async () => {
@@ -33,7 +48,8 @@ export function ApiStatus() {
           return;
         }
         if (!res.ok) {
-          setState({
+          setFetchState({
+            base,
             status: "error",
             message: `HTTP ${res.status}: ${text.slice(0, 200)}`
           });
@@ -43,21 +59,31 @@ export function ApiStatus() {
         try {
           json = JSON.parse(text) as unknown;
         } catch {
-          setState({ status: "error", message: "응답이 JSON이 아닙니다." });
+          setFetchState({
+            base,
+            status: "error",
+            message: "응답이 JSON이 아닙니다."
+          });
           return;
         }
         const obj = json as Record<string, unknown>;
         if (obj.ok === true && typeof obj.service === "string") {
-          setState({
+          setFetchState({
+            base,
             status: "ok",
             data: { ok: true, service: obj.service }
           });
         } else {
-          setState({ status: "error", message: text.slice(0, 200) });
+          setFetchState({
+            base,
+            status: "error",
+            message: text.slice(0, 200)
+          });
         }
       } catch (e) {
         if (!cancelled) {
-          setState({
+          setFetchState({
+            base,
             status: "error",
             message: e instanceof Error ? e.message : String(e)
           });
@@ -68,7 +94,7 @@ export function ApiStatus() {
     return () => {
       cancelled = true;
     };
-  }, [base]);
+  }, [base, missingConfig]);
 
   return (
     <section
