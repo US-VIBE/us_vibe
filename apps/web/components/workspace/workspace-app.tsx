@@ -50,6 +50,7 @@ import type { RetroReport } from "@/lib/retro-types";
 import { clearRetroPersist, loadRetroPersist, saveRetroPersist } from "@/lib/retro-persist";
 import { fetchAgentReply } from "@/lib/chat-ai";
 import type { ChatMessage } from "@/lib/chat-types";
+import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { IntegrationEventsPanel } from "@/components/workspace/integration-events-panel";
 import { IntegrationToolsPanel } from "@/components/workspace/integration-tools-panel";
 
@@ -611,8 +612,8 @@ export function WorkspaceApp({
   );
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-1 items-center justify-between gap-3 sm:justify-start">
             <div className="flex min-w-0 items-center gap-2">
@@ -690,7 +691,7 @@ export function WorkspaceApp({
       </header>
 
       {session.briefingMarkdown ? (
-        <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
           <details open className="mx-auto max-w-[1600px]">
             <summary className="cursor-pointer text-sm font-medium text-emerald-900">
               시나리오 브리핑 · 제출·검사·웹훅 안내
@@ -702,9 +703,9 @@ export function WorkspaceApp({
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-0 lg:flex-row">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Chat */}
-        <aside className="flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[340px] lg:border-r">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[340px] lg:border-r">
           <div className="border-b border-slate-100 px-3 py-2">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-slate-500" aria-hidden />
@@ -733,8 +734,8 @@ export function WorkspaceApp({
               </div>
             )}
           </div>
-          <div className="flex flex-1 flex-col gap-2 overflow-hidden p-3">
-            <ul className="flex max-h-[min(40vh,420px)] flex-col gap-2 overflow-y-auto text-sm lg:max-h-none lg:flex-1">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3">
+            <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain text-sm">
               {gapLoading && (
                 <li className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
                   역할 결손 정보를 불러오는 중…
@@ -748,19 +749,22 @@ export function WorkspaceApp({
                   if (m.kind === "system") {
                     return (
                       <li key={m.id} className="text-center">
-                        <span className="inline-block max-w-[95%] whitespace-pre-wrap rounded-lg bg-slate-100 px-2 py-1.5 text-[11px] leading-snug text-slate-600">
-                          {m.text}
+                        <span className="inline-block max-w-[95%] rounded-lg bg-slate-100 px-2 py-1.5 text-left text-[11px] text-slate-600">
+                          <ChatMarkdownBody
+                            text={m.text}
+                            className="!text-[11px] leading-snug [&_p]:my-0.5 [&_code]:text-[10px]"
+                          />
                         </span>
                       </li>
                     );
                   }
                   if (m.kind === "user") {
                     return (
-                      <li
-                        key={m.id}
-                        className="ml-4 whitespace-pre-wrap rounded-lg bg-slate-900 px-3 py-2 text-slate-50"
-                      >
-                        {m.text}
+                      <li key={m.id} className="ml-4 rounded-lg bg-slate-900 px-3 py-2 text-slate-50">
+                        <ChatMarkdownBody
+                          text={m.text}
+                          className="[&_a]:text-sky-300 [&_code]:bg-white/15 [&_pre]:bg-white/10"
+                        />
                       </li>
                     );
                   }
@@ -776,7 +780,10 @@ export function WorkspaceApp({
                           {m.displayName ? ` · ${m.displayName}` : ""}
                         </span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm">{m.text}</p>
+                      <ChatMarkdownBody
+                        text={m.text}
+                        className="text-sm text-slate-800 [&_a]:text-violet-700 [&_code]:bg-violet-100/90 [&_pre]:bg-slate-100"
+                      />
                     </li>
                   );
                 })}
@@ -814,7 +821,7 @@ export function WorkspaceApp({
         </aside>
 
         {/* Center: story tabs */}
-        <main className="min-w-0 flex-1 border-slate-200 bg-slate-50/80 lg:border-r">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain border-slate-200 bg-slate-50/80 lg:border-r">
           <div className="border-b border-slate-200 bg-white px-2 pt-2">
             {!specApproved && (
               <p className="px-2 pb-1 text-[11px] text-amber-800">
@@ -1445,7 +1452,7 @@ export function WorkspaceApp({
         </main>
 
         {/* Right: thinking + timeline */}
-        <aside className="flex w-full shrink-0 flex-col gap-0 border-slate-200 bg-white lg:w-[300px] lg:border-l">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col gap-0 overflow-y-auto border-slate-200 bg-white lg:w-[300px] lg:border-l">
           <div className="border-b border-slate-100">
             <div className="flex items-center gap-2 px-3 py-2">
               <Sparkles className="h-4 w-4 text-amber-600" aria-hidden />

@@ -3,7 +3,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   gap: 20px;
   margin-top: 20px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .chatCol {
@@ -13,9 +13,18 @@
   border: 1px solid #e5e7eb;
   position: sticky;
   top: 16px;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* 메시지 영역만 세로 스크롤 (페이지 전체 스크롤과 분리) */
+.chatScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 @media (max-width: 900px) {
@@ -25,7 +34,8 @@
 
   .chatCol {
     position: relative;
-    max-height: none;
+    max-height: min(70vh, 520px);
     margin-top: 16px;
+    min-height: 0;
   }
 }

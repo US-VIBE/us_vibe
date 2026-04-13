@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatMarkdownBody } from "@/components/chat-markdown";
 import { getApiBaseUrl } from "../../lib/api-base";
 import styles from "./simulate-page.module.css";
 
@@ -133,7 +134,14 @@ function chatBubble(ev: TimelineItem) {
           }}
         >
           <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>학습자 · {time}</div>
-          {text || "(빈 메시지)"}
+          {text.trim() ? (
+            <ChatMarkdownBody
+              text={text}
+              className="text-sm text-[#1e3a8a] [&_a]:text-blue-700 [&_code]:bg-blue-100/90 [&_pre]:bg-blue-100/50"
+            />
+          ) : (
+            <span style={{ fontSize: 14 }}>(빈 메시지)</span>
+          )}
         </div>
       </div>
     );
@@ -155,14 +163,24 @@ function chatBubble(ev: TimelineItem) {
           }}
         >
           <div style={{ fontSize: 11, color: "#047857", marginBottom: 4 }}>시나리오 브리핑 · {time}</div>
-          <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{md || JSON.stringify(ev.payload)}</pre>
+          {md.trim() ? (
+            <ChatMarkdownBody
+              text={md}
+              className="text-[13px] text-[#064e3b] [&_a]:text-emerald-800 [&_code]:bg-emerald-100/80 [&_pre]:bg-emerald-100/60"
+            />
+          ) : (
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 }}>
+              {JSON.stringify(ev.payload)}
+            </pre>
+          )}
         </div>
       </div>
     );
   }
   if (ev.eventType === "agent_reply") {
     const role = String((ev.payload as { role?: string }).role ?? "AI");
-    const text = String((ev.payload as { text?: string }).text ?? JSON.stringify(ev.payload));
+    const raw = String((ev.payload as { text?: string }).text ?? JSON.stringify(ev.payload));
+    const clipped = raw.length > 12000 ? `${raw.slice(0, 12000)}\n\n…(일부 생략)` : raw;
     return (
       <div key={ev.id} style={{ marginBottom: 12, textAlign: "left" }}>
         <div
@@ -179,7 +197,10 @@ function chatBubble(ev: TimelineItem) {
           <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>
             {role} · {time}
           </div>
-          <div style={{ whiteSpace: "pre-wrap" }}>{text.slice(0, 4000)}{text.length > 4000 ? "…" : ""}</div>
+          <ChatMarkdownBody
+            text={clipped}
+            className="text-sm text-[#0f172a] [&_a]:text-violet-700 [&_code]:bg-slate-200/90 [&_pre]:bg-slate-200/80"
+          />
         </div>
       </div>
     );
@@ -1101,9 +1122,8 @@ export default function SimulatePage() {
             <code>user_message</code> / <code>agent_reply</code> 위주로 표시합니다.
           </p>
           <div
+            className={styles.chatScroll}
             style={{
-              flex: 1,
-              overflowY: "auto",
               minHeight: 280,
               padding: "8px 4px",
               background: "#fafafa",
