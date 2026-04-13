@@ -5,7 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
-import { Queue, Worker } from "bullmq";
+import { Queue, Worker, QueueEvents, Job } from "bullmq";
 import Redis from "ioredis";
 import { ValidationService } from "./validation.service";
 import { ReportService } from "./report.service";
@@ -17,6 +17,28 @@ import { WorkspacePersistenceService } from "../persistence/workspace-persistenc
 interface PrValidationJob {
   prNumber: number;
   commitSha: string;
+}
+
+/** BullMQ 큐 메트릭 (P-1 관측성) */
+export interface BullMQMetrics {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: number;
+}
+
+/** 큐 상태 정보 (API 응답용) */
+export interface QueueStatusInfo {
+  enabled: boolean;
+  connected: boolean;
+  redisStatus: string;
+  queueName: string;
+  metrics: BullMQMetrics | null;
+  memoryQueueLength: number;
+  workerRunning: boolean;
+  separateWorker: boolean;
 }
 
 const BULL_QUEUE_NAME = "integration-pr-validate";
@@ -34,6 +56,13 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
   private bullConnection: Redis | null = null;
   private bullQueue: Queue | null = null;
   private bullWorker: Worker | null = null;
+  private bullQueueEvents: QueueEvents | null = null;
+  private separateWorkerMode = false;
+
+  // 메트릭 카운터 (인메모리 — 프로세스 재시작 시 초기화)
+  private jobsCompleted = 0;
+  private jobsFailed = 0;
+  private lastJobDurationMs = 0;
 
   constructor(
     private readonly validationService: ValidationService,
@@ -44,6 +73,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
 
   async onModuleInit(): Promise<void> {
     if (!envFlagTrue(process.env.INTEGRATION_BULLMQ)) {
+      this.logger.log("BullMQ 비활성화 (INTEGRATION_BULLMQ 미설정)");
       return;
     }
     const url = process.env.REDIS_URL?.trim();
@@ -55,70 +85,197 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     }
 
     const role = (process.env.BULLMQ_PROCESS_ROLE ?? "api").trim().toLowerCase();
-    const separateWorker = envFlagTrue(process.env.INTEGRATION_BULLMQ_SEPARATE_WORKER);
+    this.separateWorkerMode = envFlagTrue(process.env.INTEGRATION_BULLMQ_SEPARATE_WORKER);
 
-    const runJob = async (job: { data: unknown }) => {
-      const { prNumber, commitSha } = job.data as PrValidationJob;
-      await this.runQueuedValidation(prNumber, commitSha);
+    const runJob = async (job: Job<PrValidationJob>) => {
+      const startTime = Date.now();
+      const { prNumber, commitSha } = job.data;
+      this.logger.log(
+        `[BullMQ] 잡 시작: id=${job.id} PR #${prNumber} commit=${commitSha.slice(0, 7)} attempt=${job.attemptsMade + 1}/${job.opts.attempts ?? 1}`,
+      );
+      try {
+        await this.runQueuedValidation(prNumber, commitSha);
+        this.lastJobDurationMs = Date.now() - startTime;
+        this.jobsCompleted++;
+        this.logger.log(
+          `[BullMQ] 잡 완료: id=${job.id} PR #${prNumber} duration=${this.lastJobDurationMs}ms`,
+        );
+      } catch (e) {
+        this.lastJobDurationMs = Date.now() - startTime;
+        this.jobsFailed++;
+        this.logger.error(
+          `[BullMQ] 잡 처리 오류: id=${job.id} PR #${prNumber} duration=${this.lastJobDurationMs}ms error=${(e as Error).message}`,
+        );
+        throw e;
+      }
     };
 
     try {
       this.bullConnection = new Redis(url, { maxRetriesPerRequest: null });
 
+      this.bullConnection.on("connect", () => {
+        this.logger.log("[Redis] 연결됨");
+      });
+      this.bullConnection.on("ready", () => {
+        this.logger.log("[Redis] 준비 완료");
+      });
+      this.bullConnection.on("error", (err) => {
+        this.logger.error(`[Redis] 오류: ${err.message}`);
+      });
+      this.bullConnection.on("close", () => {
+        this.logger.warn("[Redis] 연결 끊김");
+      });
+      this.bullConnection.on("reconnecting", () => {
+        this.logger.log("[Redis] 재연결 중...");
+      });
+
       if (role === "worker") {
         this.bullWorker = new Worker(BULL_QUEUE_NAME, runJob, {
           connection: this.bullConnection,
-          concurrency: 1
+          concurrency: 1,
         });
-        this.bullWorker.on("failed", (job, err) => {
-          this.logger.error(
-            `BullMQ job 실패 id=${job?.id ?? "?"}: ${(err as Error).message}`
-          );
-        });
+        this.setupWorkerEventListeners(this.bullWorker, "worker");
         this.logger.log(
-          `BullMQ worker-only: ${BULL_QUEUE_NAME} (npm run start:bullmq-worker)`,
+          `[BullMQ] 워커 전용 모드 시작: ${BULL_QUEUE_NAME} (npm run start:bullmq-worker)`,
         );
         return;
       }
 
       this.bullQueue = new Queue(BULL_QUEUE_NAME, {
-        connection: this.bullConnection
+        connection: this.bullConnection,
       });
 
-      if (!separateWorker) {
+      this.bullQueueEvents = new QueueEvents(BULL_QUEUE_NAME, {
+        connection: new Redis(url, { maxRetriesPerRequest: null }),
+      });
+      this.setupQueueEventListeners(this.bullQueueEvents);
+
+      if (!this.separateWorkerMode) {
         this.bullWorker = new Worker(BULL_QUEUE_NAME, runJob, {
           connection: this.bullConnection,
-          concurrency: 1
+          concurrency: 1,
         });
-        this.bullWorker.on("failed", (job, err) => {
-          this.logger.error(
-            `BullMQ job 실패 id=${job?.id ?? "?"}: ${(err as Error).message}`
-          );
-        });
+        this.setupWorkerEventListeners(this.bullWorker, "api");
+        this.logger.log(
+          `[BullMQ] Queue + Worker 활성화: ${BULL_QUEUE_NAME}`,
+        );
       } else {
         this.logger.log(
-          `BullMQ Queue만 사용 (${BULL_QUEUE_NAME}) — 워커는 start:bullmq-worker + BULLMQ_PROCESS_ROLE=worker`,
+          `[BullMQ] Queue만 활성화 (${BULL_QUEUE_NAME}) — 워커는 별도 프로세스`,
         );
       }
-      this.logger.log(`BullMQ Queue 활성화: ${BULL_QUEUE_NAME}`);
     } catch (e) {
-      this.logger.error(`BullMQ 초기화 실패: ${(e as Error).message}`);
-      this.bullQueue = null;
-      this.bullWorker = null;
-      if (this.bullConnection) {
-        await this.bullConnection.quit().catch(() => {});
-        this.bullConnection = null;
-      }
+      this.logger.error(`[BullMQ] 초기화 실패: ${(e as Error).message}`);
+      await this.cleanupBullResources();
+    }
+  }
+
+  private setupWorkerEventListeners(worker: Worker, mode: string): void {
+    worker.on("completed", (job) => {
+      this.logger.log(`[BullMQ:${mode}] 잡 완료 이벤트: id=${job.id}`);
+    });
+    worker.on("failed", (job, err) => {
+      const attemptsMade = job?.attemptsMade ?? 0;
+      const maxAttempts = job?.opts?.attempts ?? 1;
+      this.logger.error(
+        `[BullMQ:${mode}] 잡 실패 이벤트: id=${job?.id ?? "?"} attempt=${attemptsMade}/${maxAttempts} error=${(err as Error).message}`,
+      );
+    });
+    worker.on("stalled", (jobId) => {
+      this.logger.warn(`[BullMQ:${mode}] 잡 stalled: id=${jobId}`);
+    });
+    worker.on("error", (err) => {
+      this.logger.error(`[BullMQ:${mode}] 워커 오류: ${err.message}`);
+    });
+    worker.on("drained", () => {
+      this.logger.debug(`[BullMQ:${mode}] 큐 비움`);
+    });
+  }
+
+  private setupQueueEventListeners(queueEvents: QueueEvents): void {
+    queueEvents.on("waiting", ({ jobId }) => {
+      this.logger.debug(`[BullMQ:queue] 잡 대기 중: id=${jobId}`);
+    });
+    queueEvents.on("active", ({ jobId }) => {
+      this.logger.debug(`[BullMQ:queue] 잡 활성화: id=${jobId}`);
+    });
+    queueEvents.on("completed", ({ jobId }) => {
+      this.logger.log(`[BullMQ:queue] 잡 완료: id=${jobId}`);
+    });
+    queueEvents.on("failed", ({ jobId, failedReason }) => {
+      this.logger.error(`[BullMQ:queue] 잡 실패: id=${jobId} reason=${failedReason}`);
+    });
+    queueEvents.on("stalled", ({ jobId }) => {
+      this.logger.warn(`[BullMQ:queue] 잡 stalled: id=${jobId}`);
+    });
+    queueEvents.on("duplicated", ({ jobId }) => {
+      this.logger.debug(`[BullMQ:queue] 중복 잡 감지: id=${jobId}`);
+    });
+  }
+
+  private async cleanupBullResources(): Promise<void> {
+    this.bullQueue = null;
+    this.bullWorker = null;
+    if (this.bullQueueEvents) {
+      await this.bullQueueEvents.close().catch(() => {});
+      this.bullQueueEvents = null;
+    }
+    if (this.bullConnection) {
+      await this.bullConnection.quit().catch(() => {});
+      this.bullConnection = null;
     }
   }
 
   async onModuleDestroy(): Promise<void> {
     await this.bullWorker?.close();
     await this.bullQueue?.close();
+    await this.bullQueueEvents?.close();
     if (this.bullConnection) {
       await this.bullConnection.quit().catch(() => {});
       this.bullConnection = null;
     }
+  }
+
+  async getQueueStatus(): Promise<QueueStatusInfo> {
+    const enabled = envFlagTrue(process.env.INTEGRATION_BULLMQ);
+    const connected = this.bullConnection?.status === "ready";
+    const redisStatus = this.bullConnection?.status ?? "disconnected";
+
+    let metrics: BullMQMetrics | null = null;
+    if (this.bullQueue) {
+      try {
+        const counts = await this.bullQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed", "paused");
+        metrics = {
+          waiting: counts.waiting ?? 0,
+          active: counts.active ?? 0,
+          completed: counts.completed ?? 0,
+          failed: counts.failed ?? 0,
+          delayed: counts.delayed ?? 0,
+          paused: counts.paused ?? 0,
+        };
+      } catch (e) {
+        this.logger.warn(`[BullMQ] 메트릭 조회 실패: ${(e as Error).message}`);
+      }
+    }
+
+    return {
+      enabled,
+      connected,
+      redisStatus,
+      queueName: BULL_QUEUE_NAME,
+      metrics,
+      memoryQueueLength: this.memoryQueue.length,
+      workerRunning: this.bullWorker !== null,
+      separateWorker: this.separateWorkerMode,
+    };
+  }
+
+  getLocalMetrics(): { jobsCompleted: number; jobsFailed: number; lastJobDurationMs: number } {
+    return {
+      jobsCompleted: this.jobsCompleted,
+      jobsFailed: this.jobsFailed,
+      lastJobDurationMs: this.lastJobDurationMs,
+    };
   }
 
   private webhookRaceMaxMs(): number {
@@ -128,15 +285,10 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     );
   }
 
-  /**
-   * PR 이벤트 발행 이후 호출. 루프 가드·동기 레이스·비동기 큐·타임아웃 시 큐 이관.
-   */
   async scheduleOrRunValidation(prNumber: number, commitSha: string): Promise<void> {
     const streak = this.workspace.getValidationFailureStreak(prNumber);
     if (streak >= 5) {
-      this.logger.warn(
-        `PR #${prNumber} 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`,
-      );
+      this.logger.warn(`PR #${prNumber} 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`);
       await this.publishEvent("VALIDATION_LOOP_DETECTED", {
         prNumber,
         consecutiveFailures: streak,
@@ -145,6 +297,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     }
 
     if (envFlagTrue(process.env.WEBHOOK_VALIDATION_ASYNC)) {
+      this.logger.log(`PR #${prNumber} 비동기 큐로 즉시 이관 (WEBHOOK_VALIDATION_ASYNC=1)`);
       this.enqueue({ prNumber, commitSha });
       return;
     }
@@ -164,9 +317,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
       await this.finalizeValidation(prNumber, validationResult);
     } catch (e) {
       if ((e as Error).message === "WEBHOOK_VALIDATION_TIMEOUT") {
-        this.logger.warn(
-          `PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 큐로 이관`,
-        );
+        this.logger.warn(`PR #${prNumber} 정적 검증 타임아웃 (${maxMs}ms) — 큐로 이관`);
         this.enqueue({ prNumber, commitSha });
         return;
       }
@@ -177,9 +328,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
   private enqueue(job: PrValidationJob): void {
     if (this.bullQueue) {
       void this.enqueueBull(job).catch((err) => {
-        this.logger.error(
-          `BullMQ add 실패, 인메모리로 폴백: ${(err as Error).message}`,
-        );
+        this.logger.error(`[BullMQ] add 실패, 인메모리로 폴백: ${(err as Error).message}`);
         this.memoryQueue.push(job);
         void this.pumpMemoryQueue();
       });
@@ -190,21 +339,20 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
   }
 
   private async enqueueBull(job: PrValidationJob): Promise<void> {
-    if (!this.bullQueue) {
-      return;
-    }
+    if (!this.bullQueue) return;
+    const jobId = `pr-validate:${job.prNumber}:${job.commitSha}`;
     await this.bullQueue.add("pr-validate", job, {
-      jobId: `pr-validate:${job.prNumber}:${job.commitSha}`,
+      jobId,
       removeOnComplete: { age: 3600 },
+      removeOnFail: { age: 86400 },
       attempts: 3,
       backoff: { type: "exponential", delay: 2000 },
     });
+    this.logger.log(`[BullMQ] 잡 추가: id=${jobId} PR #${job.prNumber}`);
   }
 
   private async pumpMemoryQueue(): Promise<void> {
-    if (this.pumping) {
-      return;
-    }
+    if (this.pumping) return;
     this.pumping = true;
     try {
       while (this.memoryQueue.length > 0) {
@@ -216,26 +364,17 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private async runQueuedValidation(
-    prNumber: number,
-    commitSha: string,
-  ): Promise<void> {
+  private async runQueuedValidation(prNumber: number, commitSha: string): Promise<void> {
     const streak = this.workspace.getValidationFailureStreak(prNumber);
     if (streak >= 5) {
-      this.logger.warn(
-        `PR #${prNumber} (큐) 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`,
-      );
+      this.logger.warn(`PR #${prNumber} (큐) 검증 루프 상한(5회 연속 실패) — 정적 검증 스킵`);
       await this.publishEvent("VALIDATION_LOOP_DETECTED", {
         prNumber,
         consecutiveFailures: streak,
       });
       return;
     }
-
-    const validationResult = await this.validationService.runAll(
-      prNumber,
-      commitSha,
-    );
+    const validationResult = await this.validationService.runAll(prNumber, commitSha);
     await this.finalizeValidation(prNumber, validationResult);
   }
 
@@ -244,10 +383,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     validationResult: Awaited<ReturnType<ValidationService["runAll"]>>,
   ): Promise<void> {
     this.workspace.savePrValidationResult(prNumber, validationResult);
-    const outcome = this.workspace.recordValidationOutcome(
-      prNumber,
-      validationResult.passed,
-    );
+    const outcome = this.workspace.recordValidationOutcome(prNumber, validationResult.passed);
     if (outcome.loopJustDetected) {
       await this.publishEvent("VALIDATION_LOOP_DETECTED", {
         prNumber,
@@ -271,12 +407,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
           validationResult,
           { preambleMarkdown: fixGuide },
         );
-        await this.reportService.postPrComment(
-          repoOwner,
-          repoName,
-          prNumber,
-          body,
-        );
+        await this.reportService.postPrComment(repoOwner, repoName, prNumber, body);
       }
     }
   }
@@ -285,8 +416,7 @@ export class WebhookPrValidationService implements OnModuleInit, OnModuleDestroy
     type: IntegrationEventType,
     payload: IntegrationEvent["payload"],
   ): Promise<void> {
-    const sessionId =
-      process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
+    const sessionId = process.env.INTEGRATION_WEBHOOK_SESSION_ID?.trim() || "github-ingest";
     const event: IntegrationEvent = {
       type,
       sessionId,

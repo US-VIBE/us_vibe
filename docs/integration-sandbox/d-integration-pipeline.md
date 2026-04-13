@@ -244,7 +244,7 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 - 동일 PR에 대해 검증 재시도 최대 **5회** (5회 초과 시 `VALIDATION_LOOP_DETECTED` 이벤트 발행 후 중단)
 - VFS 승인 없이 자동으로 실제 브랜치에 쓰는 동작 **금지**
 - Webhook 정적 검증: `WEBHOOK_VALIDATION_MAX_MS`(기본 28000ms) 상한으로 동기 레이스.
-- **P-2 (큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 큐에서 실행한다. **`INTEGRATION_BULLMQ=1`이고 `REDIS_URL`이 있으면** BullMQ 큐 `integration-pr-validate`(Redis 영속, 워커는 현재 API 프로세스 내 `concurrency: 1`). **`INTEGRATION_BULLMQ=1`인데 `REDIS_URL`이 없으면** 경고 로그 후 **인메모리 순차 큐**만 사용한다. 동기 모드에서 **타임아웃**(`WEBHOOK_VALIDATION_MAX_MS`, 코드에서 `5000`~`120000`ms 클램프)이 나면 동일하게 BullMQ 또는 인메모리 큐로 이관한다. BullMQ 잡은 `jobId: pr-validate:{prNumber}:{commitSha}`로 중복 완화, **attempts 3·지수 백오프(초기 2000ms)** 가 적용된다(잡 `add` 옵션). 다중 인스턴스·중복 실행은 운영 시 GitHub 재전송 정책과 함께 고려한다.
+- **P-2 (큐):** `WEBHOOK_VALIDATION_ASYNC=1`이면 PR 이벤트 발행 직후 HTTP는 빨리 200을 주고, 정적 검증은 큐에서 실행한다. **`INTEGRATION_BULLMQ=1`이고 `REDIS_URL`이 있으면** BullMQ 큐 `integration-pr-validate`(Redis 영속). **기본:** API 프로세스가 Queue + Worker를 함께 띄운다(`concurrency: 1`). **`INTEGRATION_BULLMQ_SEPARATE_WORKER=1`** 이면 API는 Queue만 붙이고, 워커는 별도 프로세스에서 `BULLMQ_PROCESS_ROLE=worker`로 기동한다 — `apps/api`에서 `npm run start:bullmq-worker`(진입점 `bullmq-worker.ts`, env는 `bullmq-worker-env.ts`가 선로드). **`INTEGRATION_BULLMQ=1`인데 `REDIS_URL`이 없으면** 경고 로그 후 **인메모리 순차 큐**만 사용한다. 동기 모드에서 **타임아웃**(`WEBHOOK_VALIDATION_MAX_MS`, 코드에서 `5000`~`120000`ms 클램프)이 나면 동일하게 BullMQ 또는 인메모리 큐로 이관한다. BullMQ 잡은 `jobId: pr-validate:{prNumber}:{commitSha}`로 중복 완화, **attempts 3·지수 백오프(초기 2000ms)** 가 적용된다(잡 `add` 옵션). 다중 인스턴스·중복 실행은 운영 시 GitHub 재전송 정책과 함께 고려한다.
 
 ---
 
@@ -255,11 +255,11 @@ const eventType = passed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED';
 | GitHub Webhook 수신 + 서명 검증 | ✅ | — |
 | ESLint / TypeScript 정적 검증 | ✅ | — |
 | OpenAPI 계약 검증 (정적) | ✅ | — |
-| VFS 스냅샷 저장 + 학습자 승인 | ✅ | — |
+| VFS 스냅샷 저장 + 학습자 승인 | ✅ (본문은 `vfs-store` 파일, 메타 인덱스는 SQLite) | 본문 DB 영속·승인 후 실 Git 반영 |
 | PR 코멘트 자동 생성 | ✅ | — |
 | SQLite 통합 이벤트 스트림 | ✅ | — |
 | Redis Pub/Sub 중복 발행 | 선택 (`INTEGRATION_REDIS_PUBLISHER`) | — |
-| PR 검증 영속 큐 (BullMQ + Redis) | 선택 (`INTEGRATION_BULLMQ`) | 별도 워커 프로세스 분리는 후속 |
+| PR 검증 영속 큐 (BullMQ + Redis) | 선택 (`INTEGRATION_BULLMQ`; 동일 프로세스 또는 `INTEGRATION_BULLMQ_SEPARATE_WORKER` + `start:bullmq-worker`) | 다중 워커 인스턴스·관측성 고도화 |
 | SQLite `ProjectState.codeDeltaSummary` (push 웹훅) | ✅ (`workspace_session` 행 있을 때만) | Postgres 단일 SSOT는 B 합의 |
 | 웹훅 IP/CIDR 허용 목록 | 선택 (`WEBHOOK_ALLOWLIST`) | 전역 WAF·레이트리밋 |
 | 동적 E2E 검증 (Playwright) | — | ✅ |

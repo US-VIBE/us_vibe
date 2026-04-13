@@ -42,6 +42,8 @@ const ROLE_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "supervisor", label: "Supervisor" }
 ];
 
+const UNI_TIMELINE_TABS = ["merged", "sqlite", "postgres"] as const;
+
 type Props = {
   apiBaseUrl: string;
   session: LearningSession;
@@ -77,6 +79,27 @@ export function IntegrationToolsPanel({
   const [uniSummary, setUniSummary] = useState<string | null>(null);
   const [uniData, setUniData] = useState<UnifiedTimelineData | null>(null);
   const [uniTab, setUniTab] = useState<"merged" | "sqlite" | "postgres">("merged");
+
+  const focusUniTab = useCallback((id: (typeof UNI_TIMELINE_TABS)[number]) => {
+    setUniTab(id);
+    queueMicrotask(() => {
+      document.getElementById(`uni-tab-${id}`)?.focus();
+    });
+  }, []);
+  const onUniTabKeyDown = useCallback(
+    (e: React.KeyboardEvent, current: (typeof UNI_TIMELINE_TABS)[number]) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      e.preventDefault();
+      const i = UNI_TIMELINE_TABS.indexOf(current);
+      let n = i;
+      if (e.key === "ArrowRight") n = (i + 1) % UNI_TIMELINE_TABS.length;
+      else if (e.key === "ArrowLeft") n = (i - 1 + UNI_TIMELINE_TABS.length) % UNI_TIMELINE_TABS.length;
+      else if (e.key === "Home") n = 0;
+      else n = UNI_TIMELINE_TABS.length - 1;
+      focusUniTab(UNI_TIMELINE_TABS[n]);
+    },
+    [focusUniTab]
+  );
 
   const [sseOn, setSseOn] = useState(false);
   const [sseErr, setSseErr] = useState<string | null>(null);
@@ -519,10 +542,16 @@ export function IntegrationToolsPanel({
           className="mt-2 rounded border border-slate-300 bg-white px-3 py-1 text-xs"
           onClick={loadUnified}
           disabled={uniLoading}
+          aria-busy={uniLoading}
+          aria-label="선택한 학습 세션으로 통합 타임라인 병합 조회"
         >
           이 세션으로 병합 조회
         </button>
-        {uniErr ? <p className="mt-2 text-xs text-red-600">{uniErr}</p> : null}
+        {uniErr ? (
+          <p className="mt-2 text-xs text-red-600" role="alert">
+            {uniErr}
+          </p>
+        ) : null}
         {uniSummary ? <p className="mt-2 text-xs text-slate-700">{uniSummary}</p> : null}
         {uniData ? (
           <div className="mt-3">
@@ -537,9 +566,11 @@ export function IntegrationToolsPanel({
                 id="uni-tab-merged"
                 aria-selected={uniTab === "merged"}
                 aria-controls="uni-panel-timeline"
-                tabIndex={0}
+                tabIndex={uniTab === "merged" ? 0 : -1}
+                aria-label={`병합 타임라인, SQLite ${uniData.integrationEvents.length}건과 Postgres ${uniData.postgresTimeline.length}건 통합`}
                 className={`px-2 py-1 ${uniTab === "merged" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("merged")}
+                onKeyDown={(e) => onUniTabKeyDown(e, "merged")}
               >
                 병합 ({uniData.integrationEvents.length + uniData.postgresTimeline.length})
               </button>
@@ -549,9 +580,11 @@ export function IntegrationToolsPanel({
                 id="uni-tab-sqlite"
                 aria-selected={uniTab === "sqlite"}
                 aria-controls="uni-panel-timeline"
-                tabIndex={0}
+                tabIndex={uniTab === "sqlite" ? 0 : -1}
+                aria-label={`SQLite 통합 이벤트만, ${uniData.integrationEvents.length}건`}
                 className={`px-2 py-1 ${uniTab === "sqlite" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("sqlite")}
+                onKeyDown={(e) => onUniTabKeyDown(e, "sqlite")}
               >
                 SQLite ({uniData.integrationEvents.length})
               </button>
@@ -561,9 +594,11 @@ export function IntegrationToolsPanel({
                 id="uni-tab-postgres"
                 aria-selected={uniTab === "postgres"}
                 aria-controls="uni-panel-timeline"
-                tabIndex={0}
+                tabIndex={uniTab === "postgres" ? 0 : -1}
+                aria-label={`Postgres 시뮬 타임라인만, ${uniData.postgresTimeline.length}건`}
                 className={`px-2 py-1 ${uniTab === "postgres" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("postgres")}
+                onKeyDown={(e) => onUniTabKeyDown(e, "postgres")}
               >
                 Postgres ({uniData.postgresTimeline.length})
               </button>

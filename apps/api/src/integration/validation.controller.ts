@@ -2,6 +2,7 @@ import { Controller, Get, Param, Logger, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { PrValidationStatusEnvelope } from "../persistence/workspace-persistence.service";
 import { WorkspacePersistenceService } from "../persistence/workspace-persistence.service";
+import { WebhookPrValidationService, QueueStatusInfo } from "./webhook-pr-validation.service";
 
 interface ApiResponse<T> {
   ok: boolean;
@@ -15,7 +16,10 @@ interface ApiResponse<T> {
 export class ValidationController {
   private readonly logger = new Logger(ValidationController.name);
 
-  constructor(private readonly workspace: WorkspacePersistenceService) {}
+  constructor(
+    private readonly workspace: WorkspacePersistenceService,
+    private readonly prValidationService: WebhookPrValidationService,
+  ) {}
 
   @Get("status/:prNumber")
   async getStatus(
@@ -30,5 +34,19 @@ export class ValidationController {
       this.logger.log(`PR #${prNumber} 검증 캐시 없음 (streak=${env.consecutiveFailures})`);
     }
     return { ok: true, data: env };
+  }
+
+  /**
+   * BullMQ 큐 상태 조회 (P-1 관측성)
+   * GET /api/validation/queue-status
+   */
+  @Get("queue-status")
+  async getQueueStatus(): Promise<ApiResponse<QueueStatusInfo & { localMetrics: { jobsCompleted: number; jobsFailed: number; lastJobDurationMs: number } }>> {
+    const status = await this.prValidationService.getQueueStatus();
+    const localMetrics = this.prValidationService.getLocalMetrics();
+    return {
+      ok: true,
+      data: { ...status, localMetrics },
+    };
   }
 }

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude auth status:*)",
+      "Bash(node scripts/update-bullmq-service.js:*)",
+      "Bash(node scripts/update-validation-controller.js:*)",
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "Bash(npm run lint:*)"
+    ]
+  }
+}

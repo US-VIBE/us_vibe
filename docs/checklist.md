@@ -7,7 +7,7 @@
 ## Gate B: API Contract
 - [ ] OpenAPI v1 승인
 - [ ] FE/QA 계약 검증 통과
-- [ ] `specs/api-contract.md` 엔드포인트 목록이 `specs/openapi/v1.yaml`과 일치 (`npm run` 루트 스크립트의 contract-validation / `node scripts/validate-api-contract.js`)
+- [ ] `specs/api-contract.md` 엔드포인트 목록이 `specs/openapi/v1.yaml`과 일치 — 로컬: `npm run contract-validation` 또는 `node scripts/validate-api-contract.js` (CI `contract-validation` 잡과 동일)
 - [ ] OpenAPI 경로·요청/응답 스키마·`api-contract.md` 응답 정책이 바뀐 경우: GitHub PR에 **`[contract-changed]`** 라벨 추가 (**B 담당**, 팀 규칙 [`team-role-charter.md`](team-role-charter.md))
 
 ## Gate C: Review

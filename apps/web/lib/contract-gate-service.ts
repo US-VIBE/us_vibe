@@ -111,7 +111,13 @@ export async function validateOpenApiContract(
       if (fail) {
         throw new ContractGateError(fail.code, fail.message);
       }
-      if (res.ok && json && typeof json === "object") {
+      if (!res.ok) {
+        throw new ContractGateError(
+          `HTTP_${res.status}`,
+          `검증 API 오류 (${res.status})`
+        );
+      }
+      if (json && typeof json === "object") {
         const o = json as Record<string, unknown>;
         if (o.ok === true && o.data && typeof o.data === "object") {
           const d = o.data as Record<string, unknown>;
@@ -119,12 +125,6 @@ export async function validateOpenApiContract(
             return d.validationResult as ValidationResult;
           }
         }
-      }
-      if (!res.ok) {
-        throw new ContractGateError(
-          `HTTP_${res.status}`,
-          `검증 API 오류 (${res.status})`
-        );
       }
       throw new ContractGateError("INVALID_RESPONSE", "서버 응답 형식을 해석하지 못했습니다.");
     } catch (e) {
@@ -163,7 +163,10 @@ export async function approveContractGate(
       if (fail) {
         throw new ContractGateError(fail.code, fail.message);
       }
-      if (res.ok && json && typeof json === "object") {
+      if (!res.ok) {
+        throw new ContractGateError(`HTTP_${res.status}`, `승인 API 오류 (${res.status})`);
+      }
+      if (json && typeof json === "object") {
         const o = json as Record<string, unknown>;
         if (o.ok === true && o.data && typeof o.data === "object") {
           const d = o.data as Record<string, unknown>;
@@ -171,9 +174,6 @@ export async function approveContractGate(
             return { approved: true, approvedAt: d.approvedAt };
           }
         }
-      }
-      if (!res.ok) {
-        throw new ContractGateError(`HTTP_${res.status}`, `승인 API 오류 (${res.status})`);
       }
       throw new ContractGateError("INVALID_RESPONSE", "서버 응답 형식을 해석하지 못했습니다.");
     } catch (e) {

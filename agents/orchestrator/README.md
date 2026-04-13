@@ -21,6 +21,7 @@
 ## REST 집계 (O-1 브리지)
 
 - `GET /api/sessions/{sessionId}/orchestrator-context` — `role-gap`, `workspace-gates`, 에이전트 정책·REST 문서 경로錨을 한 응답으로 묶어 외부 오케스트레이터·도구가 읽기 쉽게 한다.
+- 외부 런타임 연결·O-3 SSOT 합의(폴링/SSE·SQLite vs Postgres): [`docs/agents/external-orchestrator-and-ssot.md`](../../docs/agents/external-orchestrator-and-ssot.md)
 
 ## 관련 구현 경로
 

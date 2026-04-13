@@ -173,7 +173,7 @@ CI에서는 `npm run build`와 함께 `npm test`를 붙이면 된다.
 
 ## 7. 알려진 제한
 
-- 학습 세션 `sessionId`는 클라이언트에서 생성한 UUID이며, API의 SQLite 행과 **사용자 계정 ID는 아직 강하게 묶이지 않는다**(향후 `user_id` 매핑 가능).
+- 학습 세션 `sessionId`는 클라이언트에서 생성한 UUID이며, API의 SQLite 행과 **사용자 계정 ID는 아직 강하게 묶이지 않는다**(향후 `user_id` 매핑 가능). 웹훅·시스템 쓰기와 감사 정책은 [`integration-sandbox/system-writes-s1.md`](integration-sandbox/system-writes-s1.md) 참고.
 - GitHub 웹훅은 JWT 없이 동작한다(서명 시크릿 권장).
 
 ### 7.1 학습 sessionId · 시뮬 · 웹훅 맞추기
