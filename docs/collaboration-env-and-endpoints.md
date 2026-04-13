@@ -189,6 +189,21 @@ IP는 보조 방어이고, **본인 확인은 HMAC** 이다. GitHub 웹훅에 `G
 
 상세 절차·로그 해석은 위 **1~5단계**와 [`d-integration-dev-notes.md`](integration-sandbox/d-integration-dev-notes.md) 최신 항목을 본다.
 
+#### 배포 후 스모크: `GET /health/webhook-security` (비밀 미노출)
+
+운영·스테이징 API 베이스 URL에 대해 아래를 주기적으로 확인한다. 응답은 시크릿 값 없이 **모드·플래그만** 노출한다([`app.controller.ts`](../apps/api/src/app.controller.ts)).
+
+```bash
+curl -sS "https://<API_HOST>/health/webhook-security" | jq .
+```
+
+| 필드 | 운영 권장 |
+|------|-----------|
+| `github.signatureVerification` | `required` 또는 최소 `hmac_when_secret_configured` |
+| `github.secretConfigured` | `true` |
+| `github.allowlistRuleCount` | 정책에 따라 0(미사용) 또는 GitHub CIDR 규칙 수 |
+| `github.trustProxyLikely` | 리버스 프록시 뒤면 `true`와 실제 `WEBHOOK_TRUST_PROXY` 설정이 일치해야 함 |
+
 ---
 
 ## 4. 인증: 두 가지 HTTP 표면
@@ -218,6 +233,7 @@ IP는 보조 방어이고, **본인 확인은 HMAC** 이다. GitHub 웹훅에 `G
 | GET | `/health` | 없음 |
 | GET | `/health/db` | 없음 |
 | GET | `/health/redis` | 없음 |
+| GET | `/health/webhook-security` | 없음 — S-2 배포 스모크(서명 모드·시크릿 설정 여부·allowlist 규칙 수, 비밀 미노출) |
 
 ### 5.2 시뮬레이션 세션 (Backend Solo·게이트)
 

@@ -24,6 +24,7 @@
 
 - DoD는 SQLite·스크립트 점검; 시뮬 **B→C**는 `POST /sessions/:id/verify`가 공식 경로 — [fe-web-integration.md](fe-web-integration.md) §7.2.
 - **권장:** 한 버튼 자동 연쇄보다 **두 액션 분리** 노출(제품이 합의하면 이 문서·백로그 갱신).
+- **현재:** 제품 합의 전까지 **분리 유지** — DoD(`workspace-dod-verify`)와 시뮬 `verify`를 한 버튼으로 묶는 변경은 F-3 티켓에서만 진행한다.
 
 ---
 

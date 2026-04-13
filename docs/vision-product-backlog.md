@@ -96,8 +96,26 @@
 
 ---
 
+## 7. V2·비전 확장 티켓 후보 (쪼개기 전 목록)
+
+[plan.md](plan.md) Out of Scope 및 본 문서 §1 O-5, §2를 **실행 가능한 이슈**로 나눌 때 본문에 아래 ID를 인용한다.
+
+| 후보 ID | 방향 | 비고 |
+|---------|------|------|
+| O-5-a | 영향도 리포트(코드·계약·역할) MVP 범위 정의 | A/B/D |
+| O-5-b | PM 스케줄러·알림과 오케스트레이터 큐 연동 | A/C |
+| V-1 | 음성 회의 UX·API 표면 | A/C |
+| V-2 | 로컬 파일 완전 자동 동기화 | D/B |
+| V-3 | Playwright 동적 E2E 검증을 웹훅 파이프에 붙이는지 | D/QA |
+
+세부 스펙은 [design-living-revisions.md](design-living-revisions.md)로 설계서에 역반영한다.
+
+---
+
 ## 관련 문서
 
 - [AI 협업 에이전트 설계](ai_협업_에이전트_설계_10198352.plan.md)
 - [FE/BE 협업 권장 사양](handoff-fe-be-collaboration-recommendations.md)
 - [살아 있는 설계 역반영 절차](design-living-revisions.md)
+- [외부 오케스트레이터·SSOT](agents/external-orchestrator-and-ssot.md)
+- [시스템 쓰기·S-1](integration-sandbox/system-writes-s1.md)
