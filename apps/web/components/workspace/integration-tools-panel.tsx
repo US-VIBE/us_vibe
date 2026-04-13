@@ -22,6 +22,7 @@ import {
   fetchWorkspaceGates,
   patchProjectState,
   patchSessionHumanRoles,
+  runSimulationSessionVerify,
   runWorkspaceDodVerify,
   uploadWorkspaceArtifact,
   type IntegrationHints,
@@ -95,6 +96,8 @@ export function IntegrationToolsPanel({
 
   const [dodLoading, setDodLoading] = useState(false);
   const [dodResult, setDodResult] = useState<string | null>(null);
+  const [simVerifyLoading, setSimVerifyLoading] = useState(false);
+  const [simVerifyResult, setSimVerifyResult] = useState<string | null>(null);
 
   const [hints, setHints] = useState<IntegrationHints | null>(null);
   const [hintsErr, setHintsErr] = useState<string | null>(null);
@@ -280,6 +283,21 @@ export function IntegrationToolsPanel({
       .finally(() => setDodLoading(false));
   };
 
+  const runSimVerify = () => {
+    setSimVerifyLoading(true);
+    setSimVerifyResult(null);
+    runSimulationSessionVerify(apiBaseUrl, sid)
+      .then((r) => {
+        setSimVerifyResult(
+          r.ok ? `시뮬 검증 완료: ${r.summary}` : `시뮬 검증 실패: ${r.message}`
+        );
+      })
+      .catch((e: unknown) =>
+        setSimVerifyResult(e instanceof Error ? e.message : String(e))
+      )
+      .finally(() => setSimVerifyLoading(false));
+  };
+
   const toggleRole = (id: string) => {
     setRolesSelected((prev) => {
       const next = new Set(prev);
@@ -456,8 +474,13 @@ export function IntegrationToolsPanel({
         ) : null}
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm">
-        <h3 className="font-semibold text-slate-800">통합 타임라인 (SQLite + Postgres)</h3>
+      <section
+        className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 text-sm"
+        aria-labelledby="unified-timeline-heading"
+      >
+        <h3 id="unified-timeline-heading" className="font-semibold text-slate-800">
+          통합 타임라인 (SQLite + Postgres)
+        </h3>
         <p className="mt-1 text-xs text-slate-500">
           <code className="rounded bg-white px-1">GET /api/integration/unified-timeline</code> ·{" "}
           <strong className="font-medium text-slate-600">병합</strong> 탭은 SQLite{" "}
@@ -477,9 +500,18 @@ export function IntegrationToolsPanel({
         {uniSummary ? <p className="mt-2 text-xs text-slate-700">{uniSummary}</p> : null}
         {uniData ? (
           <div className="mt-3">
-            <div className="flex flex-wrap gap-1 border-b border-slate-200 text-xs">
+            <div
+              className="flex flex-wrap gap-1 border-b border-slate-200 text-xs"
+              role="tablist"
+              aria-label="타임라인 소스 보기"
+            >
               <button
                 type="button"
+                role="tab"
+                id="uni-tab-merged"
+                aria-selected={uniTab === "merged"}
+                aria-controls="uni-panel-timeline"
+                tabIndex={0}
                 className={`px-2 py-1 ${uniTab === "merged" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("merged")}
               >
@@ -487,6 +519,11 @@ export function IntegrationToolsPanel({
               </button>
               <button
                 type="button"
+                role="tab"
+                id="uni-tab-sqlite"
+                aria-selected={uniTab === "sqlite"}
+                aria-controls="uni-panel-timeline"
+                tabIndex={0}
                 className={`px-2 py-1 ${uniTab === "sqlite" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("sqlite")}
               >
@@ -494,45 +531,87 @@ export function IntegrationToolsPanel({
               </button>
               <button
                 type="button"
+                role="tab"
+                id="uni-tab-postgres"
+                aria-selected={uniTab === "postgres"}
+                aria-controls="uni-panel-timeline"
+                tabIndex={0}
                 className={`px-2 py-1 ${uniTab === "postgres" ? "border-b-2 border-slate-800 font-medium" : "text-slate-500"}`}
                 onClick={() => setUniTab("postgres")}
               >
                 Postgres ({uniData.postgresTimeline.length})
               </button>
             </div>
-            <ul className="mt-2 max-h-48 overflow-y-auto space-y-1 text-[11px] text-slate-700">
+            <ul
+              id="uni-panel-timeline"
+              role="tabpanel"
+              aria-labelledby={
+                uniTab === "merged"
+                  ? "uni-tab-merged"
+                  : uniTab === "sqlite"
+                    ? "uni-tab-sqlite"
+                    : "uni-tab-postgres"
+              }
+              className="mt-2 max-h-48 list-none space-y-1 overflow-y-auto text-[11px] text-slate-700"
+            >
               {uniTab === "merged"
-                ? buildMergedTimelineRows(uniData).map((row, i) => (
-                    <li
-                      key={`m-${row.source}-${row.sortMs}-${row.title}-${i}`}
-                      className="rounded border border-slate-100 bg-white px-2 py-1"
-                    >
+                ? buildMergedTimelineRows(uniData).map((row) => (
+                    <li key={row.stableKey} className="rounded border border-slate-100 bg-white px-2 py-1">
+                      <span className="sr-only">{row.source === "sqlite" ? "SQLite 출처" : "Postgres 출처"}</span>
                       <span
                         className={
                           row.source === "sqlite"
                             ? "mr-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
                             : "mr-1 rounded bg-indigo-100 px-1 text-[10px] font-medium text-indigo-900"
                         }
+                        aria-hidden
                         title={row.source === "sqlite" ? "SQLite integration_events" : "Postgres collaboration_events"}
                       >
                         {row.source === "sqlite" ? "SQLite" : "PG"}
                       </span>
                       <span className="font-medium">{row.title}</span>
-                      <div className="text-slate-400">{row.detail}</div>
+                      <div className="text-slate-500">
+                        {row.isoTime ? (
+                          <time dateTime={row.isoTime}>{row.detail}</time>
+                        ) : (
+                          row.detail
+                        )}
+                      </div>
                     </li>
                   ))
                 : uniTab === "sqlite"
                   ? uniData.integrationEvents.map((ev, i) => (
-                      <li key={`${ev.timestamp}-${ev.type}-${i}`} className="rounded border border-slate-100 bg-white px-2 py-1">
+                      <li
+                        key={`${ev.timestamp}-${ev.type}-${ev.stateVersion}-${i}`}
+                        className="rounded border border-slate-100 bg-white px-2 py-1"
+                      >
                         <span className="font-medium">{ev.type}</span>{" "}
                         <span className="text-slate-400">v{ev.stateVersion}</span>
-                        <div className="text-slate-400">{ev.timestamp}</div>
+                        <div className="text-slate-500">
+                          {(() => {
+                            const iso = Date.parse(ev.timestamp);
+                            return Number.isFinite(iso) ? (
+                              <time dateTime={new Date(iso).toISOString()}>{ev.timestamp}</time>
+                            ) : (
+                              ev.timestamp
+                            );
+                          })()}
+                        </div>
                       </li>
                     ))
                   : uniData.postgresTimeline.map((row) => (
                       <li key={row.id} className="rounded border border-slate-100 bg-white px-2 py-1">
                         <span className="font-medium">{row.eventType}</span>
-                        <div className="text-slate-400">{row.createdAt}</div>
+                        <div className="text-slate-500">
+                          {(() => {
+                            const iso = Date.parse(row.createdAt);
+                            return Number.isFinite(iso) ? (
+                              <time dateTime={new Date(iso).toISOString()}>{row.createdAt}</time>
+                            ) : (
+                              row.createdAt
+                            );
+                          })()}
+                        </div>
                       </li>
                     ))}
             </ul>
@@ -600,28 +679,43 @@ export function IntegrationToolsPanel({
         </button>
         {roleSaveMsg ? <p className="mt-2 text-xs text-slate-600">{roleSaveMsg}</p> : null}
 
-        <div className="mt-4 border-t border-slate-200 pt-3">
-          <p className="text-xs font-medium text-slate-600">DoD 자동 검증 (워크스페이스)</p>
-          <p className="mt-1 text-[11px] leading-snug text-slate-500">
-            아래 버튼은 <code className="rounded bg-white px-0.5">POST /api/sessions/{"{id}"}/workspace-dod-verify</code>로,{" "}
-            저장소 계약 스크립트와 SQLite 워크스페이스 게이트만 검사합니다. 시뮬레이션 게이트 C로 넘기는{" "}
-            <code className="rounded bg-white px-0.5">POST /sessions/{"{id}"}/verify</code>와는 별도 동작입니다(제품상 두 액션
-            유지).
-          </p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            시뮬 검증은 API 베이스로{" "}
-            <code className="rounded bg-white px-0.5">{apiBaseUrl.replace(/\/$/, "")}/sessions/{sid}/verify</code> (또는
-            터미널/HTTP 클라이언트)에서 호출하세요.
-          </p>
-          <button
-            type="button"
-            className="mt-2 rounded border border-slate-300 bg-white px-3 py-1 text-xs"
-            onClick={runDod}
-            disabled={dodLoading}
-          >
-            실행 (workspace-dod-verify)
-          </button>
-          {dodResult ? <p className="mt-2 text-xs text-slate-700">{dodResult}</p> : null}
+        <div className="mt-4 space-y-4 border-t border-slate-200 pt-3">
+          <div>
+            <p className="text-xs font-medium text-slate-600">1) DoD 자동 검증 (워크스페이스 SQLite)</p>
+            <p className="mt-1 text-[11px] leading-snug text-slate-500">
+              <code className="rounded bg-white px-0.5">POST /api/sessions/{"{id}"}/workspace-dod-verify</code> — 브리핑
+              체크리스트·스크립트 기준 워크스페이스만 검사합니다.
+            </p>
+            <button
+              type="button"
+              className="mt-2 rounded border border-slate-300 bg-white px-3 py-1 text-xs"
+              onClick={runDod}
+              disabled={dodLoading}
+            >
+              실행 (workspace-dod-verify)
+            </button>
+            {dodResult ? <p className="mt-2 text-xs text-slate-700">{dodResult}</p> : null}
+          </div>
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-medium text-slate-600">2) 시뮬 게이트 C (Postgres 세션)</p>
+            <p className="mt-1 text-[11px] leading-snug text-slate-500">
+              <code className="rounded bg-white px-0.5">POST /sessions/{"{id}"}/verify</code> — 시뮬 문서의 B→C 공식
+              경로입니다. 위 DoD와 결과가 다를 수 있습니다.
+            </p>
+            <button
+              type="button"
+              className="mt-2 rounded border border-sky-600 bg-sky-50 px-3 py-1 text-xs text-sky-950"
+              onClick={() => void runSimVerify()}
+              disabled={simVerifyLoading}
+            >
+              실행 (시뮬 verify)
+            </button>
+            {simVerifyResult ? (
+              <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-xs text-slate-700">
+                {simVerifyResult}
+              </p>
+            ) : null}
+          </div>
         </div>
       </section>
 
